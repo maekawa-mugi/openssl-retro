@@ -95,9 +95,11 @@ and a combined CTR/GHASH loop. Timed output includes four ciphertexts
 and authentication tags, both checked against scalar output afterward.
 Benchmark IV reuse is only for deterministic synthetic comparisons;
 never reuse nonces for real encryption. GHASH
-mutable state is reset before each sample. RSA's public-operation
-timing includes its internal R2 preparation because that is part of
-the public API. Comparisons are WITHIN each row, not between rows.
+mutable state is reset before each sample. RSA's public-operation benchmark now uses the public-key PREPARED
+API on BOTH A and B. Four independent modulus-dependent R²/n0 values
+are calculated once in ps2_bench_prepare(), OUTSIDE the timed interval.
+The legacy uncached RSA API remains covered by its standalone correctness
+suite, but the RSA benchmark row measures the cached-key hot path. Comparisons are WITHIN each row, not between rows.
 B/A > 1 means MMI is faster; B/F > 1 means fused Poly1305 is faster
 than scalar. The benchmark is not a full libcrypto/EVP/TLS benchmark.
 
