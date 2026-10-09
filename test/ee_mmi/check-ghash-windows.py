@@ -82,10 +82,13 @@ for case in range(120):
             count+=1
 
 assert "EE_MMI_GHASH_WINDOW_BITS" in c
-assert "ossl_ee_ghash_window_xor4(state, high, selector)" in c
-assert "ossl_ee_ghash_window_xor4(state, low, selector)" in c
+assert "ossl_ee_ghash_window_xor4(state, ctx->high, selector)" in c
+assert "ossl_ee_ghash_window_xor4(state, ctx->low, selector)" in c
 assert "selector[lane] = (x[xi][lane] >> (shift + 4U)) & 15U;" in c
-assert "ee_wipe_window(high, sizeof(high));" in c
+assert "ossl_ee_ghash_window_prepare(" in c
+assert "ossl_ee_ghash_window_mul(" in c
+assert "ee_wipe_window(ctx, sizeof(*ctx));" in c
+assert "ossl_ee_ghash_window_clear(&ctx);" in c
 assert "ee_wipe_window(basis, sizeof(basis));" in c
 assert "pceqw   $15, $12, $14" in asm
 assert "paddw   $14, $14, $13" in asm
