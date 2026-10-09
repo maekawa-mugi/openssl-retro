@@ -197,20 +197,32 @@ static void fe_to_normal(uint32_t out[8],const ee_fe *r)
 }
 static void fe_inv(ee_fe *r,const ee_fe *z)
 {
-    ee_fe result,base;
-    int bit;
+    ee_fe powers[16],result;
+    int nib;
+    unsigned int j;
+    /* p-2 is PUBLIC and fixed. Four-bit fixed windows turn many
+     * repeated Montgomery products into a table of 16 powers.
+     * The window-indexed loads depend only on P_MINUS_2, never on
+     * the private scalar or on the field element being inverted.
+     * Exactly 256 field squarings + at most 64 field multiplications
+     * plus 14 setup products replace 256 squarings + ~128 products.
+     * All field values are in the Montgomery representation.
+     */
+    fe_one(&powers[0]);
+    fe_copy(&powers[1],z);
+    for (j=2;j<16;++j)
+        fe_mul(&powers[j],&powers[j-1],z);
     fe_one(&result);
-    fe_copy(&base,z);
-    /* Fixed public exponent p-2. Neither branch nor loop count
-     * depends on private scalar bits. */
-    for (bit=255;bit>=0;--bit) {
-        fe_sq(&result,&result);
-        if ((P_MINUS_2[bit>>5]>>(bit&31))&1U)
-            fe_mul(&result,&result,&base);
+    for (nib=63;nib>=0;--nib) {
+        unsigned int digit=(P_MINUS_2[nib>>3] >> (4*(nib&7))) & 15U;
+        for (j=0;j<4;++j)
+            fe_sq(&result,&result);
+        if (digit != 0)
+            fe_mul(&result,&result,&powers[digit]);
     }
     fe_copy(r,&result);
+    ee_wipe(powers,sizeof(powers));
     ee_wipe(&result,sizeof(result));
-    ee_wipe(&base,sizeof(base));
 }
 static void pt_cmov(ee_point *r,const ee_point *src,uint32_t choice)
 {
