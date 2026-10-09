@@ -1,5 +1,20 @@
 # PCSX2 / PS2 EE MMI regression ELF
 
+## More experiments under the same GHASH SPR opt-in
+
+PS2_SPR_BENCH=1 also appends CRYPTO_SPR experiments after the
+GHASH experiment and ten correctness/timing suites succeed.
+Three real kernels are tested: AES4 (64-byte four-block encryption),
+SHA256x4 (four 64/256/1024/2048-byte messages), and
+ChaCha20 (64/1024/4096/8192-byte stream XOR). Their placement
+choices are RAM, SPR input, SPR output, both, and transfer-inclusive.
+AES4 additionally compares a warm round-key schedule in SPR
+with copying the full round-key schedule to SPR on every call.
+Each input has independent output comparison to the RAM kernel and
+six rotated-order timing samples. Examine CRYPTO_SPR and
+CRYPTO_SPR_RESULT stdout records. None alter library dispatch.
+
+
 ## Opt-in PS2 GHASH scratchpad benchmark
 
 Build with PS2_AB=1 PS2_SCHED_GHASH=3 PS2_SPR_BENCH=1
