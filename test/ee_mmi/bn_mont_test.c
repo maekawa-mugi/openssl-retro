@@ -53,6 +53,50 @@ uint32_t ossl_ee_bn_muladd_row_mmi(uint32_t *t, const uint32_t *a,
 }
 #endif
 
+#ifdef EE_MMI_BN_ROW_FUSED
+static int exercise_row_direct(void)
+{
+    uint32_t a[MAXN], before[MAXN];
+    struct {
+        uint32_t pre[4], t[MAXN], post[4];
+    } __attribute__((aligned(16))) guard;
+    uint32_t expected[MAXN], multiplier, carry, old;
+    size_t n, j;
+    unsigned int trial, g;
+
+    for (n = 1; n <= MAXN; ++n) {
+        for (trial = 0; trial < 16; ++trial) {
+            uint64_t c = 0;
+            multiplier = trial == 0 ? UINT32_MAX
+                       : trial == 1 ? 0x80000000U : rand32();
+            for (j=0; j < n; ++j) {
+                a[j] = trial == 0 ? UINT32_MAX : rand32();
+                before[j] = trial == 0 ? UINT32_MAX : rand32();
+                expected[j] = before[j];
+                old = expected[j];
+                {
+                    uint64_t z=(uint64_t)a[j]*multiplier+old+c;
+                    expected[j]=(uint32_t)z;
+                    c=z>>32;
+                }
+            }
+            memset(&guard, 0xa5, sizeof(guard));
+            memcpy(guard.t, before, n*sizeof(uint32_t));
+            carry=ossl_ee_bn_muladd_row_mmi(guard.t,a,multiplier,n);
+            if (carry != (uint32_t)c
+                || memcmp(expected,guard.t,n*sizeof(uint32_t)) != 0)
+                return 0;
+            for (g=0; g<4; ++g)
+                if (guard.pre[g] != 0xa5a5a5a5U
+                    || guard.post[g] != 0xa5a5a5a5U)
+                    return 0;
+        }
+    }
+    puts("PASS: BN R5900 fused row direct 2048 odd/even, bit31, guard tests");
+    return 1;
+}
+#endif
+
 static uint32_t neg_inv32(uint32_t n)
 {
     uint32_t inverse = 1U;
@@ -272,6 +316,10 @@ static void benchmark(void)
 
 int main(int argc, char **argv)
 {
+#ifdef EE_MMI_BN_ROW_FUSED
+    if (!exercise_row_direct())
+        return EXIT_FAILURE;
+#endif
     if (!exercise_two_products() || !exercise_mont())
         return EXIT_FAILURE;
     printf("PASS: EE BN Montgomery %lu differential/alias/guard cases"
