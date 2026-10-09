@@ -40,43 +40,55 @@ int ps2_test_p256_ecdh(int, char **);
 int ps2_test_aes_gcm(int, char **);
 
 #ifndef PS2_AB
-static int run(const char *name, test_fn test)
+static int run(unsigned int index, const char *name, test_fn test)
 {
     char *argv[] = { (char *)name, NULL };
     int result;
-    scr_printf("%-12s RUNNING\n", name);
-    printf("PS2 MMI: running %s\n", name);
+    scr_setXY(0,5+(int)index);
+    scr_setfontcolor(0x00ffffff);
+    scr_printf("%-12.12s %-6s %-15s", name, "RUN", "checking...");
+    printf("VALIDATE %-12s START\n",name);
     fflush(stdout);
     result = test(1, argv);
-    scr_printf("             %s (code %d)\n", result ? "FAIL" : "PASS", result);
-    printf("PS2 MMI: %s %s (code %d)\n", name,
-           result ? "FAIL" : "PASS", result);
+    scr_setXY(0,5+(int)index);
+    scr_setfontcolor(result ? 0x000000ff : 0x0000ff00);
+    scr_printf("%-12.12s %-6s %-15s",name,result?"FAIL":"PASS","no benchmark");
+    printf("VALIDATE %-12s %s (code=%d)\n",name,
+           result ? "FAIL" : "PASS",result);
     fflush(stdout);
     return result != 0;
 }
-
 int main(void)
 {
+    unsigned int i;
     int failures = 0;
+    static const struct { const char *name; test_fn fn; } tests[] = {
+        {"ChaCha20",ps2_test_chacha20},{"SHA224/256",ps2_test_sha256},
+        {"Poly1305",ps2_test_poly1305},{"AES",ps2_test_aes},
+        {"GHASH",ps2_test_ghash},{"BN Mont",ps2_test_bn_mont},
+        {"X25519",ps2_test_x25519},{"RSA",ps2_test_rsa},
+        {"P256 ECDH",ps2_test_p256_ecdh},{"AES-GCM",ps2_test_aes_gcm}
+    };
     init_scr();
-    scr_printf("OpenSSL PS2 EE MMI regression tests\n");
-    scr_printf("10 standalone suites / R5900 assembly\n\n");
-    failures += run("ChaCha20", ps2_test_chacha20);
-    failures += run("SHA224/256", ps2_test_sha256);
-    failures += run("Poly1305", ps2_test_poly1305);
-    failures += run("AES", ps2_test_aes);
-    failures += run("GHASH", ps2_test_ghash);
-    failures += run("BN Mont", ps2_test_bn_mont);
-    failures += run("X25519", ps2_test_x25519);
-    failures += run("RSA", ps2_test_rsa);
-    failures += run("P256 ECDH", ps2_test_p256_ecdh);
-    failures += run("AES-GCM", ps2_test_aes_gcm);
-    scr_printf("\n%s failures=%d\n",
-               failures ? "TEST: FAIL!" : "TEST: OK!", failures);
+    scr_setCursor(0);
+    scr_setXY(0,0);scr_printf("OPENSSL RETRO | PS2 EE MMI | VALIDATION");
+    scr_setXY(0,1);scr_printf("A=MMI | 10 suites | untimed correctness checks");
+    scr_setXY(0,3);scr_printf("%-12s %-6s %s","FUNCTION","TEST","BENCHMARK");
+    for(i=0;i<10;i++){
+        scr_setXY(0,5+(int)i);
+        scr_printf("%-12.12s %-6s %-15s",tests[i].name,"WAIT","--");
+    }
+    for(i=0;i<10;i++) failures+=run(i,tests[i].name,tests[i].fn);
+    scr_setXY(0,22);
+    scr_setfontcolor(failures?0x000000ff:0x0000ff00);
+    scr_printf("RESULT: %s | 10/10 TESTS | FAILURES=%d   ",
+               failures?"FAIL":"PASS",failures);
+    printf("PS2 VALIDATION RESULT: failures=%d\n",failures);
     fflush(stdout);
     SleepThread();
     return failures != 0;
 }
+
 #else
 #define SAMPLES 6
 
@@ -161,33 +173,32 @@ static double median6(u64 data[SAMPLES])
     return ((double)temp[2] + (double)temp[3]) / 2.0;
 }
 
-static int validate_all(void)
+/* Each suite is validated immediately before its isolated speed test.
+ * No diagnostics or GS writes run inside measured regions. */
+static int validate_one(unsigned int i)
 {
-    unsigned int i, mode;
+    unsigned int mode, variants = i == 2 ? 3U : 2U;
     int failures = 0;
-    init_scr();
-    scr_printf("OpenSSL PS2 correctness (NOT timed)\n");
-    scr_printf("A: PMULTUW/MMI B: scalar F: fused Poly\n\n");
-    for (i = 0; i < suite_count; ++i) {
-        for (mode = 0; mode < (i == 2 ? 3U : 2U); ++mode) {
-            char *argv[] = {(char *)suites[i].name,NULL};
-            int code;
-            printf("VALIDATE %s %c start\n",suites[i].name,
-                   mode == 2 ? 'F' : 'A'+(int)mode);
-            fflush(stdout);
-            code = suites[i].tests[mode](1,argv);
-            if (code != 0)
-                ++failures;
-            printf("VALIDATE %s %c %s (code=%d)\n",
-                   suites[i].name,mode == 2 ? 'F' : 'A'+(int)mode,
-                   code ? "FAIL" : "PASS", code);
-            fflush(stdout);
-        }
-        scr_setfontcolor(0x00ffffff);
-        scr_printf("%-12s regression done\n", suites[i].name);
+    scr_setXY(0,5+(int)i);
+    scr_setfontcolor(0x00ffffff);
+    scr_printf("%-12.12s %-6s %-30s", suites[i].name,"RUN","validating...");
+    for(mode=0;mode<variants;mode++){
+        char *argv[] = {(char *)suites[i].name,NULL};
+        int code;
+        printf("VALIDATE %s %c start\n",suites[i].name,
+               mode == 2 ? 'F' : 'A'+(int)mode);
+        fflush(stdout);
+        code=suites[i].tests[mode](1,argv);
+        if(code!=0)++failures;
+        printf("VALIDATE %s %c %s (code=%d)\n",suites[i].name,
+               mode == 2 ? 'F' : 'A'+(int)mode,
+               code?"FAIL":"PASS",code);
+        fflush(stdout);
     }
-    scr_printf("\nValidation failures: %d\n", failures);
-    printf("VALIDATION RESULT: %d failures\n", failures);
+    scr_setXY(0,5+(int)i);
+    scr_setfontcolor(failures?0x000000ff:0x0000ff00);
+    scr_printf("%-12.12s %-6s %-30s",suites[i].name,
+               failures?"FAIL":"PASS",failures?"benchmark skipped":"timing...");
     return failures == 0;
 }
 
@@ -199,12 +210,11 @@ static int benchmark_one(unsigned int suite)
     unsigned int sample, step, mode, variants = suite == 2 ? 3U : 2U;
     unsigned int reps = suites[suite].reps;
     unsigned int baseline;
-    int row = 3 + (int)suite * 2;
+    int row = 5 + (int)suite;
 
     scr_setXY(0,row);
     scr_setfontcolor(0x00ffffff);
-    scr_printf("%-12s %3u rep x %d  ", suites[suite].name,
-               reps, SAMPLES);
+    scr_printf("%-12.12s %-6s %-30s",suites[suite].name,"PASS","sampling...");
 
     for (sample = 0; sample < SAMPLES; ++sample) {
         uint32_t canonical = 0;
@@ -229,6 +239,10 @@ static int benchmark_one(unsigned int suite)
                 samples[mode][sample] = elapsed;
             }
         }
+        scr_setXY(0,row);
+        scr_setfontcolor(0x00ffffff);
+        scr_printf("%-12.12s %-6s SAMPLE %u/%d                 ",
+                   suites[suite].name,"PASS",sample+1,SAMPLES);
         baseline = 0;
         canonical = digests[baseline];
         for (mode = 1; mode < variants; ++mode) {
@@ -246,14 +260,18 @@ static int benchmark_one(unsigned int suite)
         med[mode] = median6(samples[mode]);
         milliseconds[mode] = med[mode] * 1000.0 / kBUSCLK;
     }
-    scr_setXY(0,row+1);
-    scr_setfontcolor(0x0000ff00);
-    if (variants == 3)
-        scr_printf("A:%7.2f B:%7.2f F:%7.2f ms ",
-                   milliseconds[0],milliseconds[1],milliseconds[2]);
-    else
-        scr_printf("A:%9.3f B:%9.3f ms ",
+    {
+        unsigned int best=0;
+        const char *const names[]={"MMI","SCALAR","FUSED"};
+        for(mode=1;mode<variants;mode++)
+            if(med[mode]<med[best])best=mode;
+        scr_setXY(0,row);
+        scr_setfontcolor(0x0000ff00);
+        scr_printf("%-12.12s %-6s %-6s %5.2fx  A:%7.3f B:%7.3f  ",
+                   suites[suite].name,"PASS",names[best],
+                   med[best]>0.0?med[1]/med[best]:0.0,
                    milliseconds[0],milliseconds[1]);
+    }
     printf("BENCH %s reps=%u n=%d A=%.6f ms B=%.6f ms "
            "B/A=%.4fx checksum=%08lx\n",
            suites[suite].name,reps,SAMPLES,milliseconds[0],
@@ -269,43 +287,61 @@ static int benchmark_one(unsigned int suite)
 int main(void)
 {
     unsigned int i;
-    int failures = 0;
-    if (!validate_all()) {
-        scr_printf("\nTEST: FAIL! No benchmark on invalid results.\n");
-        SleepThread();
-        return 1;
-    }
-    for (i = 0; i < 3; ++i)
-        if (!backends[i].prepare()) {
-            printf("BENCH FAIL: mode %u preparation failed\n",i);
-            SleepThread();
-            return 1;
-        }
-
+    int failures=0,passed=0;
     init_scr();
-    scr_printf("OpenSSL PS2 crypto-only timings\n");
-    scr_printf("A:MMI  B:scalar  F:Poly PMADDUW\n");
-    scr_printf("C%d S%d G%d K%d BN%d med6\n",
-               PS2_CONFIG_CHACHA,PS2_CONFIG_SHA,
-               PS2_CONFIG_GHASH,PS2_CONFIG_AES,PS2_CONFIG_BN);
+    /* PS2SDK cursor is visible as a white cell at the right edge unless
+     * explicitly disabled. Never print newline on the last GS row. */
+    scr_setCursor(0);
+    scr_setXY(0,0);
+    scr_printf("OPENSSL RETRO | PS2 EE MMI | VALIDATION + BENCHMARK");
+    scr_setXY(0,1);
+    scr_printf("A=MMI B=scalar F=fused | med6 | speed=scalar/best");
+    scr_setXY(0,2);
+    scr_printf("C%d S%d G%d K%d BN%d  (MMI schedule)",PS2_CONFIG_CHACHA,
+               PS2_CONFIG_SHA,PS2_CONFIG_GHASH,PS2_CONFIG_AES,PS2_CONFIG_BN);
+    scr_setXY(0,3);
+    scr_printf("%-12s %-6s %-6s %-7s %s","FUNCTION","TEST","BEST","SPEED","A/B ms");
+    for(i=0;i<suite_count;i++){
+        scr_setXY(0,5+(int)i);
+        scr_printf("%-12.12s %-6s %-30s",suites[i].name,"WAIT","--");
+    }
     printf("PS2 SCHEDULE C=%d S=%d G=%d K=%d BN=%d (A only)\n",
            PS2_CONFIG_CHACHA,PS2_CONFIG_SHA,
            PS2_CONFIG_GHASH,PS2_CONFIG_AES,PS2_CONFIG_BN);
-    for (i = 0; i < suite_count; ++i) {
-        if (!benchmark_one(i)) {
+    for(i=0;i<3;i++){
+        if(!backends[i].prepare()){
             ++failures;
-            scr_setXY(0,3+(int)i*2+1);
-            scr_setfontcolor(0x000000ff);
-            scr_printf("BENCH FAIL - see stdout       ");
+            scr_setXY(0,22);scr_setfontcolor(0x000000ff);
+            scr_printf("RESULT: FAIL | backend %u preparation failed",i);
+            printf("BENCH FAIL: mode %u preparation failed\n",i);
+            fflush(stdout);
+            SleepThread();
+            return 1;
         }
     }
+    for(i=0;i<suite_count;i++){
+        if(!validate_one(i)){
+            ++failures;
+            continue; /* never benchmark a failed correctness check */
+        }
+        if(!benchmark_one(i)){
+            ++failures;
+            scr_setXY(0,5+(int)i);
+            scr_setfontcolor(0x000000ff);
+            scr_printf("%-12.12s %-6s %-30s",suites[i].name,"PASS","BENCH FAIL");
+        }else ++passed;
+    }
+    scr_setXY(0,22);
+    scr_setfontcolor(failures?0x000000ff:0x0000ff00);
+    scr_printf("RESULT: %s | CHECK+BENCH %2d/%2u | FAILURES=%d    ",
+               failures?"FAIL":"PASS",passed,suite_count,failures);
     scr_setXY(0,23);
-    scr_setfontcolor(failures ? 0x000000ff : 0x0000ff00);
-    scr_printf("%s regression=OK benchmark_failures=%d\n",
-               failures ? "TEST: FAIL!" : "TEST: OK!",failures);
-    printf("PS2 BENCH RESULT: %d failures\n",failures);
+    scr_setfontcolor(0x00ffffff);
+    scr_printf("COMPLETE | all suites visited | details on stdout");
+    printf("PS2 BENCH RESULT: %d failures, %d complete suites\n",
+           failures,passed);
     fflush(stdout);
     SleepThread();
-    return failures != 0;
+    return failures!=0;
 }
 #endif
