@@ -39,6 +39,29 @@ int ps2_test_rsa(int, char **);
 int ps2_test_p256_ecdh(int, char **);
 int ps2_test_aes_gcm(int, char **);
 
+#define EE_WHITE 0x00ffffffU
+#define EE_GREEN 0x0000ff00U
+static void ee_print_status(int row, const char *name, const char *status,
+                            const char *detail)
+{
+    scr_setfontcolor(EE_WHITE);
+    scr_setXY(0,row);
+    scr_printf("%-12.12s %-6s %-47s", name, "", detail);
+    scr_setXY(13,row);
+    scr_setfontcolor(status[0]=='P' ? EE_GREEN : EE_WHITE);
+    scr_printf("%-6.6s", status);
+    scr_setfontcolor(EE_WHITE);
+}
+static void ee_print_result(int failed, unsigned int passed, unsigned int total)
+{
+    scr_setXY(0,22); scr_setfontcolor(EE_WHITE);
+    scr_printf("RESULT: %-6s | CHECK+BENCH %2u/%2u | FAILURES=%d      ",
+               "", passed, total, failed);
+    scr_setXY(8,22);
+    scr_setfontcolor(failed?EE_WHITE:EE_GREEN);
+    scr_printf("%-6s", failed?"FAIL":"PASS");
+    scr_setfontcolor(EE_WHITE);
+}
 #ifndef PS2_AB
 static int run(unsigned int index, const char *name, test_fn test)
 {
@@ -50,9 +73,7 @@ static int run(unsigned int index, const char *name, test_fn test)
     printf("VALIDATE %-12s START\n",name);
     fflush(stdout);
     result = test(1, argv);
-    scr_setXY(0,5+(int)index);
-    scr_setfontcolor(result ? 0x000000ff : 0x0000ff00);
-    scr_printf("%-12.12s %-6s %-15s",name,result?"FAIL":"PASS","no benchmark");
+    ee_print_status(5+(int)index,name,result?"FAIL":"PASS","no benchmark");
     printf("VALIDATE %-12s %s (code=%d)\n",name,
            result ? "FAIL" : "PASS",result);
     fflush(stdout);
@@ -79,10 +100,7 @@ int main(void)
         scr_printf("%-12.12s %-6s %-15s",tests[i].name,"WAIT","--");
     }
     for(i=0;i<10;i++) failures+=run(i,tests[i].name,tests[i].fn);
-    scr_setXY(0,22);
-    scr_setfontcolor(failures?0x000000ff:0x0000ff00);
-    scr_printf("RESULT: %s | 10/10 TESTS | FAILURES=%d   ",
-               failures?"FAIL":"PASS",failures);
+    ee_print_result(failures,10U-(unsigned int)failures,10U);
     printf("PS2 VALIDATION RESULT: failures=%d\n",failures);
     fflush(stdout);
     SleepThread();
@@ -195,10 +213,9 @@ static int validate_one(unsigned int i)
                code?"FAIL":"PASS",code);
         fflush(stdout);
     }
-    scr_setXY(0,5+(int)i);
-    scr_setfontcolor(failures?0x000000ff:0x0000ff00);
-    scr_printf("%-12.12s %-6s %-30s",suites[i].name,
-               failures?"FAIL":"PASS",failures?"benchmark skipped":"timing...");
+    ee_print_status(5+(int)i,suites[i].name,
+                    failures?"FAIL":"PASS",
+                    failures?"benchmark skipped":"timing...");
     return failures == 0;
 }
 
@@ -212,9 +229,7 @@ static int benchmark_one(unsigned int suite)
     unsigned int baseline;
     int row = 5 + (int)suite;
 
-    scr_setXY(0,row);
-    scr_setfontcolor(0x00ffffff);
-    scr_printf("%-12.12s %-6s %-30s",suites[suite].name,"PASS","sampling...");
+    ee_print_status(row,suites[suite].name,"PASS","sampling...");
 
     for (sample = 0; sample < SAMPLES; ++sample) {
         uint32_t canonical = 0;
@@ -239,10 +254,11 @@ static int benchmark_one(unsigned int suite)
                 samples[mode][sample] = elapsed;
             }
         }
-        scr_setXY(0,row);
-        scr_setfontcolor(0x00ffffff);
-        scr_printf("%-12.12s %-6s SAMPLE %u/%d                 ",
-                   suites[suite].name,"PASS",sample+1,SAMPLES);
+        {
+            char progress[48];
+            snprintf(progress,sizeof(progress),"SAMPLE %u/%d",sample+1,SAMPLES);
+            ee_print_status(row,suites[suite].name,"PASS",progress);
+        }
         baseline = 0;
         canonical = digests[baseline];
         for (mode = 1; mode < variants; ++mode) {
@@ -265,12 +281,26 @@ static int benchmark_one(unsigned int suite)
         const char *const names[]={"MMI","SCALAR","FUSED"};
         for(mode=1;mode<variants;mode++)
             if(med[mode]<med[best])best=mode;
-        scr_setXY(0,row);
-        scr_setfontcolor(0x0000ff00);
-        scr_printf("%-12.12s %-6s %-6s %5.2fx  A:%7.3f B:%7.3f  ",
-                   suites[suite].name,"PASS",names[best],
-                   med[best]>0.0?med[1]/med[best]:0.0,
-                   milliseconds[0],milliseconds[1]);
+        {
+            char details[64];
+            char rate[20];
+            const unsigned int bytes[] = {
+                4096U, 4096U, 4096U, 64U, 512U, 0U, 0U, 0U, 0U, 1024U
+            };
+            const unsigned int ops[] = {0,0,0,0,0,1,4,4,1,0};
+            double seconds = milliseconds[0] / 1000.0;
+            double value = bytes[suite] ?
+                (double)(bytes[suite]*reps)/seconds/1000000.0 :
+                (double)(ops[suite]*reps)/seconds;
+            snprintf(rate,sizeof(rate),bytes[suite]?"%.2fMB/s":"%.1fop/s",value);
+            snprintf(details,sizeof(details),
+                     "%-6s %5.2fx A:%7.3f B:%7.3f %s",
+                     names[best],med[1]/med[0],
+                     milliseconds[0],milliseconds[1],rate);
+            ee_print_status(row,suites[suite].name,"PASS",details);
+            printf("BENCH_RATE,%s,MMI,%.6f,%s\n",
+                   suites[suite].name,value,bytes[suite]?"MB/s":"ops/s");
+        }
     }
     printf("BENCH %s reps=%u n=%d A=%.6f ms B=%.6f ms "
            "B/A=%.4fx checksum=%08lx\n",
@@ -284,69 +314,6 @@ static int benchmark_one(unsigned int suite)
     return 1;
 }
 
-#ifdef PS2_SPR_BENCH
-/* GHASH window: identical algorithm, table in stack RAM or EE SPR. */
-#include <string.h>
-void ossl_ee_ghash_mul4(uint32_t [4][4], const uint32_t [4][4], const uint32_t [4][4]);
-void ossl_ee_ghash_mul4_spr_bench(uint32_t [4][4], const uint32_t [4][4], const uint32_t [4][4]);
-int ps2_spr_io_benchmark(void);
-static int benchmark_ghash_spr(void)
-{
-    uint32_t x[4][4] __attribute__((aligned(16)));
-    uint32_t h[4][4] __attribute__((aligned(16)));
-    uint32_t ram[4][4] __attribute__((aligned(16)));
-    uint32_t spr[4][4] __attribute__((aligned(16)));
-    u64 samples[2][SAMPLES] = {{0}};
-    unsigned int seed, lane, word, trial, step, mode, rep;
-    const unsigned int reps = 32;
-    /* Sixteen differential trials before measuring a single cycle. */
-    for (trial = 0; trial < 16; ++trial) {
-        seed = 0xa3517d29u ^ (trial * 0x9e3779b9u);
-        for (word = 0; word < 4; ++word)
-            for (lane = 0; lane < 4; ++lane) {
-                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
-                x[word][lane] = seed;
-                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
-                h[word][lane] = seed;
-            }
-        ossl_ee_ghash_mul4(ram, x, h);
-        ossl_ee_ghash_mul4_spr_bench(spr, x, h);
-        if (memcmp(ram, spr, sizeof(ram)) != 0) {
-            printf("GHASH_SPR_CHECK,FAIL,trial=%u\n", trial);
-            return 0;
-        }
-    }
-    puts("GHASH_SPR_CHECK,PASS,16");
-    for (trial = 0; trial < SAMPLES; ++trial) {
-        for (step = 0; step < 2; ++step) {
-            mode = (step + trial) & 1u;
-            u64 start = GetTimerSystemTime();
-            for (rep = 0; rep < reps; ++rep) {
-                if (mode == 0) ossl_ee_ghash_mul4(ram, x, h);
-                else ossl_ee_ghash_mul4_spr_bench(spr, x, h);
-            }
-            samples[mode][trial] = GetTimerSystemTime() - start;
-            if (samples[mode][trial] == 0) return 0;
-        }
-        if (memcmp(ram, spr, sizeof(ram)) != 0) {
-            printf("GHASH_SPR_SAMPLE,FAIL,%u\n", trial);
-            return 0;
-        }
-        printf("GHASH_SPR_SAMPLE,%u,%llu,%llu\n", trial,
-               (unsigned long long)samples[0][trial],
-               (unsigned long long)samples[1][trial]);
-    }
-    {
-        double a = median6(samples[0]), b = median6(samples[1]);
-        printf("GHASH_SPR_RESULT,PASS,RAM=%.1f,SPR=%.1f,RAM_over_SPR=%.5f\n",
-               a, b, a / b);
-        scr_setXY(0,17); scr_setfontcolor(0x00ffffff);
-        scr_printf("GHASH SPR: RAM/SPR %5.2fx  (experimental)", a / b);
-    }
-    return 1;
-}
-#endif
-
 int main(void)
 {
     unsigned int i;
@@ -358,12 +325,12 @@ int main(void)
     scr_setXY(0,0);
     scr_printf("OPENSSL RETRO | PS2 EE MMI | VALIDATION + BENCHMARK");
     scr_setXY(0,1);
-    scr_printf("A=MMI B=scalar F=fused | med6 | speed=scalar/best");
+    scr_printf("A=MMI B=scalar F=fused | median6 | B/A: >1 is faster");
     scr_setXY(0,2);
     scr_printf("C%d S%d G%d K%d BN%d  (MMI schedule)",PS2_CONFIG_CHACHA,
                PS2_CONFIG_SHA,PS2_CONFIG_GHASH,PS2_CONFIG_AES,PS2_CONFIG_BN);
     scr_setXY(0,3);
-    scr_printf("%-12s %-6s %-6s %-7s %s","FUNCTION","TEST","BEST","SPEED","A/B ms");
+    scr_printf("%-12s %-6s %-6s %-7s %s","FUNCTION","TEST","BEST","B/A","A/B ms + MMI rate");
     for(i=0;i<suite_count;i++){
         scr_setXY(0,5+(int)i);
         scr_printf("%-12.12s %-6s %-30s",suites[i].name,"WAIT","--");
@@ -374,7 +341,7 @@ int main(void)
     for(i=0;i<3;i++){
         if(!backends[i].prepare()){
             ++failures;
-            scr_setXY(0,22);scr_setfontcolor(0x000000ff);
+            scr_setXY(0,22);scr_setfontcolor(EE_WHITE);
             scr_printf("RESULT: FAIL | backend %u preparation failed",i);
             printf("BENCH FAIL: mode %u preparation failed\n",i);
             fflush(stdout);
@@ -389,25 +356,10 @@ int main(void)
         }
         if(!benchmark_one(i)){
             ++failures;
-            scr_setXY(0,5+(int)i);
-            scr_setfontcolor(0x000000ff);
-            scr_printf("%-12.12s %-6s %-30s",suites[i].name,"PASS","BENCH FAIL");
+            ee_print_status(5+(int)i,suites[i].name,"FAIL","benchmark failed");
         }else ++passed;
     }
-#ifdef PS2_SPR_BENCH
-    if (failures == 0 && !benchmark_ghash_spr()) {
-        ++failures;
-        puts("GHASH_SPR_RESULT,FAIL");
-    }
-    if (failures == 0 && !ps2_spr_io_benchmark()) {
-        ++failures;
-        puts("CRYPTO_SPR_RESULT,FAIL");
-    }
-#endif
-    scr_setXY(0,22);
-    scr_setfontcolor(failures?0x000000ff:0x0000ff00);
-    scr_printf("RESULT: %s | CHECK+BENCH %2d/%2u | FAILURES=%d    ",
-               failures?"FAIL":"PASS",passed,suite_count,failures);
+    ee_print_result(failures,(unsigned int)passed,suite_count);
     scr_setXY(0,23);
     scr_setfontcolor(0x00ffffff);
     scr_printf("COMPLETE | all suites visited | details on stdout");
