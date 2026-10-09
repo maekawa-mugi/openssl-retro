@@ -1,41 +1,45 @@
 # PCSX2 / PS2 EE MMI regression ELF
 
-## More experiments under the same GHASH SPR opt-in
+## October 2026 real-EE performance repair
 
-PS2_SPR_BENCH=1 also appends CRYPTO_SPR experiments after the
-GHASH experiment and ten correctness/timing suites succeed.
-Three real kernels are tested: AES4 (64-byte four-block encryption),
-SHA256x4 (four 64/256/1024/2048-byte messages), and
-ChaCha20 (64/1024/4096/8192-byte stream XOR). Their placement
-choices are RAM, SPR input, SPR output, both, and transfer-inclusive.
-AES4 additionally compares a warm round-key schedule in SPR
-with copying the full round-key schedule to SPR on every call.
-Each input has independent output comparison to the RAM kernel and
-six rotated-order timing samples. Examine CRYPTO_SPR and
-CRYPTO_SPR_RESULT stdout records. None alter library dispatch.
+The SPR experiment and all its PS2 fixed-address accesses have been
+removed. No scratchpad option, scratchpad runner, or SPR GS row remains.
 
+In the PS2 A/B/F runner, the MMI **A** candidate now uses the fused
+PMULTUW/PMADDUW Poly1305 sums backend (160 bytes of intermediates
+instead of the old 800-byte product matrix). The full scalar **B** and
+independent fused **F** checks remain. The previous 5x Poly1305
+regression was observed on the old unfused A kernel; speed of the new
+default still requires a real-EE retest.
 
-## Opt-in PS2 GHASH scratchpad benchmark
+The whole-row PMULTUW Montgomery backend is now the default in the
+standalone PS2 build (`BN1`), affecting BN, RSA and P-256. Pass
+`PS2_SCHED_BN=0` to benchmark the old two-product baseline.
+This selection is not a proof of speedup until measured on real EE.
+The GHASH G3/G4 fixed-scan window backend now prepares H only once
+per multi-block update and reuses the same table through AES-GCM
+AAD, payload authentication, and tag calculation. For the original
+bit-serial GHASH baseline, explicitly use `PS2_SCHED_GHASH=0`.
 
-Build with PS2_AB=1 PS2_SCHED_GHASH=3 PS2_SPR_BENCH=1
-bash test/ps2/build.sh
-(PS2_SCHED_GHASH=4 uses the split-table eight-bit variant.)
-The output remains build-ps2-mmi/openssl_mmi.elf.
+The PS2 GS UI uses white text, except for the status word PASS in
+green. The B/A column is **always** scalar-time / MMI-time, even
+when MMI loses (ratios under 1.00x); a separate candidate winner and
+true MMI bytes/second or ops/second are shown. The stdout BENCH_RATE
+records retain more precision. The 6-sample median and the
+correctness-first gating are unchanged.
 
-The normal ten suites must pass first. Then the ELF compares GHASH
-window multiplication with stack-RAM tables versus scratchpad tables,
-using sixteen differential vectors and six alternating pairs of
-32 multiplications. Detailed GHASH_SPR_CHECK, GHASH_SPR_SAMPLE and
-GHASH_SPR_RESULT records are emitted to stdout and a ratio is shown
-on the GS screen. Each table is 1 KiB; G=4 uses 0x70000000 and
-0x70000400. Tables are scanned at fixed addresses, and wiped after
-each call including when stored in SPR.
+Build the complete A/B/F ELF from the repo root:
 
-The experiment requires exclusive SPR ownership and uses no DMA.
-Normal production dispatch and plain PS2_AB=1 builds are unchanged.
-PS2_SPR_BENCH=1 rejects other GHASH schedules or non-AB builds.
-Cross-compilation and real hardware/PCSX2 timing are not yet verified.
+```sh
+PS2_AB=1 bash test/ps2/build.sh
+# build-ps2-mmi/openssl_mmi.elf
+```
 
+Do not deploy the experimental crypto backends to real secrets:
+constant-time and side-channel properties of the full R5900 toolchain
+have not been audited. GHASH cached fixed-scan schedule and fused
+Poly1305 preserve fixed-loop behavior, but that is not a substitute
+for security verification.
 
 `openssl_mmi_test.elf` runs ten regression suites from
 `test/ee_mmi` with their real R5900 assembly backends: ChaCha20,
