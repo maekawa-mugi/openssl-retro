@@ -52,5 +52,10 @@ assert "aes_gcm_test.c" not in builder or "aes_gcm" in builder
 assert "ossl_ee_aes_gcm4_seal" in bench
 assert "sizeof(gcm_tags)" in bench
 assert "ps2_test_aes_gcm" in runner
+assert "ossl_ee_rsa_public65537_prepared4(" in bench
+assert "ossl_ee_rsa_public_key_init(" in bench
+assert bench.index("ossl_ee_rsa_public_key_init(") < bench.index(
+    "int ps2_bench_run(")
+assert "ossl_ee_rsa_public65537_4(" not in bench
 print("PASS: ten isolated A/B workloads, fused Poly1305,"
       " alternating median and post-timer output digest checks")
