@@ -1,5 +1,27 @@
 # PCSX2 / PS2 EE MMI regression ELF
 
+## Opt-in PS2 GHASH scratchpad benchmark
+
+Build with PS2_AB=1 PS2_SCHED_GHASH=3 PS2_SPR_BENCH=1
+bash test/ps2/build.sh
+(PS2_SCHED_GHASH=4 uses the split-table eight-bit variant.)
+The output remains build-ps2-mmi/openssl_mmi.elf.
+
+The normal ten suites must pass first. Then the ELF compares GHASH
+window multiplication with stack-RAM tables versus scratchpad tables,
+using sixteen differential vectors and six alternating pairs of
+32 multiplications. Detailed GHASH_SPR_CHECK, GHASH_SPR_SAMPLE and
+GHASH_SPR_RESULT records are emitted to stdout and a ratio is shown
+on the GS screen. Each table is 1 KiB; G=4 uses 0x70000000 and
+0x70000400. Tables are scanned at fixed addresses, and wiped after
+each call including when stored in SPR.
+
+The experiment requires exclusive SPR ownership and uses no DMA.
+Normal production dispatch and plain PS2_AB=1 builds are unchanged.
+PS2_SPR_BENCH=1 rejects other GHASH schedules or non-AB builds.
+Cross-compilation and real hardware/PCSX2 timing are not yet verified.
+
+
 `openssl_mmi_test.elf` runs ten regression suites from
 `test/ee_mmi` with their real R5900 assembly backends: ChaCha20,
 SHA-224/SHA-256, Poly1305 (PADDW + PMULTUW), AES-128/192/256, GHASH,
