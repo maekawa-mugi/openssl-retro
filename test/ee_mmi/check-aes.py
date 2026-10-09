@@ -106,6 +106,53 @@ assert "old[(col+row)&3]" in src
 assert "(ctx->rounds != 10 && ctx->rounds != 12" in src
 assert "needed > (uint64_t)UINT32_MAX - counter + 1U" in src
 
+# The optimized EE AES S-box no longer uses thirteen general GF
+# multiplications. Independently check the GF(2^8) linear square
+# residues and the exact x^254 exponent addition chain for all bytes.
+assert "static uint32_t aes_gfsquare4(uint32_t x)" in src
+assert "x2 = aes_gfsquare4(x);" in src
+assert "inverse = aes_gfsquare4(t);" in src
+assert src.count("t = aes_gfsquare4(") == 5
+assert "aes_wipe(&inverse, sizeof(inverse));" in src
+
+def packed_square(x):
+    r = (x & 0x01010101) ^ ((x & 0x02020202) << 1)
+    r ^= ((x & 0x04040404) << 2) ^ ((x & 0x08080808) << 3)
+    b = (x >> 4) & 0x01010101
+    r ^= b ^ (b << 1) ^ (b << 3) ^ (b << 4)
+    b = (x >> 5) & 0x01010101
+    r ^= (b << 2) ^ (b << 3) ^ (b << 5) ^ (b << 6)
+    b = (x >> 6) & 0x01010101
+    r ^= b ^ (b << 1) ^ (b << 3) ^ (b << 5) ^ (b << 7)
+    b = (x >> 7) & 0x01010101
+    r ^= (b << 1) ^ (b << 3) ^ (b << 4) ^ (b << 7)
+    return r & 0xffffffff
+
+def chain_inverse(x):
+    x2 = packed_square(x)
+    t = gfmul(x2, x)
+    t = packed_square(t)
+    x7 = gfmul(t, x)
+    t = packed_square(x7)
+    t = gfmul(t, x)
+    t = packed_square(t)
+    t = packed_square(t)
+    t = packed_square(t)
+    t = gfmul(t, x7)
+    return packed_square(t)
+
+for x in range(256):
+    assert packed_square(x) == gfmul(x,x)
+    assert chain_inverse(x) == inv(x), ("EE S-box inverse",x)
+for _ in range(4096):
+    x = rng.getrandbits(32)
+    result = packed_square(x)
+    expected = sum(gfmul((x >> (8*j)) & 255,
+                         (x >> (8*j)) & 255) << (8*j)
+                   for j in range(4))
+    assert result == expected, ("EE 4-byte GF square",x)
+print("PASS: optimized AES S-box, 256 inverse chains and 4096 packed squares")
+
 print("PASS: AES EE MMI four columns, constant-time packed xtime and build isolation")
 print("PASS: 256 algebraic S-box values and 8192 independent MixColumns/ARK cases")
 print("NOTE: static arithmetic model only; real EE assembly and speed unverified")
