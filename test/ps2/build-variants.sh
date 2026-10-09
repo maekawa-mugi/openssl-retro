@@ -6,6 +6,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 prefix="${1:-build-ps2-schedules}"
+# Reference and unrelated suites always select their default BN implementation.
+export PS2_SCHED_BN=0
 case "$prefix" in
     ""|"/") echo "Refusing empty/root output directory" >&2; exit 2 ;;
 esac
@@ -27,6 +29,15 @@ PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
 PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
     PS2_SCHED_GHASH=2 PS2_SCHED_AES=0 \
     bash test/ps2/build.sh "$prefix/ghash_unroll4"
+PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
+    PS2_SCHED_GHASH=3 PS2_SCHED_AES=0 PS2_SCHED_BN=0 \
+    bash test/ps2/build.sh "$prefix/ghash_window4"
+PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
+    PS2_SCHED_GHASH=4 PS2_SCHED_AES=0 PS2_SCHED_BN=0 \
+    bash test/ps2/build.sh "$prefix/ghash_window8"
+PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
+    PS2_SCHED_GHASH=0 PS2_SCHED_AES=0 PS2_SCHED_BN=1 \
+    bash test/ps2/build.sh "$prefix/bn_fused_row"
 PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
     PS2_SCHED_GHASH=0 PS2_SCHED_AES=1 \
     bash test/ps2/build.sh "$prefix/aes_key_early"
