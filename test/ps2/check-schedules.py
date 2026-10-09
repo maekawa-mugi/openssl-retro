@@ -240,6 +240,9 @@ assert "ghash-ee-window.c" in build
 assert "ghash-ee-window-mmi.S" in build
 assert "PS2_CONFIG_BN" in runner
 assert "PS2_CONFIG_BN" in build
+assert "EE_MMI_AES_TOWER_SBOX" in build
+assert "PS2_SCHED_AES:-2" in build
+assert "aes_tower" in read("test/ps2/build-variants.sh")
 assert "ghash_window4" in read("test/ps2/build-variants.sh")
 assert "ghash_window8" in read("test/ps2/build-variants.sh")
 assert "bn_fused_row" in read("test/ps2/build-variants.sh")
