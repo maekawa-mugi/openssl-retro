@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <timer.h>
+#include <debug.h>
 #include "crypto/ee_mmi.h"
 
 void ChaCha20_ctr32(unsigned char *, const unsigned char *, size_t,
@@ -104,6 +105,7 @@ int ps2_spr_io_benchmark(void)
         {64u,1024u,4096u,8192u}
     };
     uint64_t samples[7][SPR_IO_SAMPLES], med[7];
+    double summary[3]={0,0,0};
     unsigned char key[16];
     unsigned kind,ci,n,bytes,mode,count,trial,step,i,pass=0;
     int ok;
@@ -146,8 +148,15 @@ int ps2_spr_io_benchmark(void)
                    modes[mode],(unsigned long long)med[mode],
                    (double)med[0]/(double)med[mode]);
         }
+        if((kind==0 && n==64u)||(kind==1 && n==1024u)||
+           (kind==2 && n==4096u))
+            summary[kind]=(double)med[0]/(double)med[3];
         ++pass;
     }
+    scr_setXY(0,18);
+    scr_setfontcolor(0x00ffffff);
+    scr_printf("RAM/SPR both  AES:%4.2fx SHA:%4.2fx ChaCha:%4.2fx",
+               summary[0],summary[1],summary[2]);
     ossl_ee_aes_clear_key(&aes_ctx);
     memset((void *)(uintptr_t)0x70001000u,0,sizeof(aes_ctx));
     printf("CRYPTO_SPR_RESULT,PASS,cases=%u,sink=%lu\n",
