@@ -124,7 +124,7 @@ void ossl_ee_ghash_mul4(uint32_t out[4][4],
         unsigned int shift = (3U - ((unsigned int)group & 3U)) * 8U;
         ee_shift_n(state, 8);
         for (lane = 0; lane < 4; ++lane)
-            selector[lane] = (x[xi][lane] >> shift) >> 4;
+            selector[lane] = (x[xi][lane] >> (shift + 4U)) & 15U;
         ossl_ee_ghash_window_xor4(state, high, selector);
         for (lane = 0; lane < 4; ++lane)
             selector[lane] = (x[xi][lane] >> shift) & 15U;
