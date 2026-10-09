@@ -84,12 +84,31 @@ static int exercise_row_direct(void)
             memcpy(guard.t, before, n*sizeof(uint32_t));
             carry=ossl_ee_bn_muladd_row_mmi(guard.t,a,multiplier,n);
             if (carry != (uint32_t)c
-                || memcmp(expected,guard.t,n*sizeof(uint32_t)) != 0)
+                || memcmp(expected,guard.t,n*sizeof(uint32_t)) != 0) {
+                size_t first=n;
+                for(j=0;j<n;++j)
+                    if(expected[j]!=guard.t[j]){first=j;break;}
+                printf("BN_ROW_FAIL,n=%lu,trial=%u,limb=%lu,"
+                       "got_carry=%08lx,want_carry=%08lx,"
+                       "got_word=%08lx,want_word=%08lx\n",
+                       (unsigned long)n,trial,(unsigned long)first,
+                       (unsigned long)carry,(unsigned long)(uint32_t)c,
+                       (unsigned long)(first<n?guard.t[first]:0),
+                       (unsigned long)(first<n?expected[first]:0));
+                fflush(stdout);
                 return 0;
+            }
             for (g=0; g<4; ++g)
                 if (guard.pre[g] != 0xa5a5a5a5U
-                    || guard.post[g] != 0xa5a5a5a5U)
+                    || guard.post[g] != 0xa5a5a5a5U) {
+                    printf("BN_ROW_FAIL,n=%lu,trial=%u,"
+                           "guard=%u,pre=%08lx,post=%08lx\n",
+                           (unsigned long)n,trial,g,
+                           (unsigned long)guard.pre[g],
+                           (unsigned long)guard.post[g]);
+                    fflush(stdout);
                     return 0;
+                }
         }
     }
     puts("PASS: BN R5900 fused row direct 2048 odd/even, bit31, guard tests");
