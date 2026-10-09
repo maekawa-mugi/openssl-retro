@@ -284,6 +284,68 @@ static int benchmark_one(unsigned int suite)
     return 1;
 }
 
+#ifdef PS2_SPR_BENCH
+/* GHASH window: identical algorithm, table in stack RAM or EE SPR. */
+#include <string.h>
+void ossl_ee_ghash_mul4(uint32_t [4][4], const uint32_t [4][4], const uint32_t [4][4]);
+void ossl_ee_ghash_mul4_spr_bench(uint32_t [4][4], const uint32_t [4][4], const uint32_t [4][4]);
+static int benchmark_ghash_spr(void)
+{
+    uint32_t x[4][4] __attribute__((aligned(16)));
+    uint32_t h[4][4] __attribute__((aligned(16)));
+    uint32_t ram[4][4] __attribute__((aligned(16)));
+    uint32_t spr[4][4] __attribute__((aligned(16)));
+    u64 samples[2][SAMPLES] = {{0}};
+    unsigned int seed, lane, word, trial, step, mode, rep;
+    const unsigned int reps = 32;
+    /* Sixteen differential trials before measuring a single cycle. */
+    for (trial = 0; trial < 16; ++trial) {
+        seed = 0xa3517d29u ^ (trial * 0x9e3779b9u);
+        for (word = 0; word < 4; ++word)
+            for (lane = 0; lane < 4; ++lane) {
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+                x[word][lane] = seed;
+                seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
+                h[word][lane] = seed;
+            }
+        ossl_ee_ghash_mul4(ram, x, h);
+        ossl_ee_ghash_mul4_spr_bench(spr, x, h);
+        if (memcmp(ram, spr, sizeof(ram)) != 0) {
+            printf("GHASH_SPR_CHECK,FAIL,trial=%u\n", trial);
+            return 0;
+        }
+    }
+    puts("GHASH_SPR_CHECK,PASS,16");
+    for (trial = 0; trial < SAMPLES; ++trial) {
+        for (step = 0; step < 2; ++step) {
+            mode = (step + trial) & 1u;
+            u64 start = GetTimerSystemTime();
+            for (rep = 0; rep < reps; ++rep) {
+                if (mode == 0) ossl_ee_ghash_mul4(ram, x, h);
+                else ossl_ee_ghash_mul4_spr_bench(spr, x, h);
+            }
+            samples[mode][trial] = GetTimerSystemTime() - start;
+            if (samples[mode][trial] == 0) return 0;
+        }
+        if (memcmp(ram, spr, sizeof(ram)) != 0) {
+            printf("GHASH_SPR_SAMPLE,FAIL,%u\n", trial);
+            return 0;
+        }
+        printf("GHASH_SPR_SAMPLE,%u,%llu,%llu\n", trial,
+               (unsigned long long)samples[0][trial],
+               (unsigned long long)samples[1][trial]);
+    }
+    {
+        double a = median6(samples[0]), b = median6(samples[1]);
+        printf("GHASH_SPR_RESULT,PASS,RAM=%.1f,SPR=%.1f,RAM_over_SPR=%.5f\n",
+               a, b, a / b);
+        scr_setXY(0,17); scr_setfontcolor(0x00ffffff);
+        scr_printf("GHASH SPR: RAM/SPR %5.2fx  (experimental)", a / b);
+    }
+    return 1;
+}
+#endif
+
 int main(void)
 {
     unsigned int i;
@@ -331,6 +393,12 @@ int main(void)
             scr_printf("%-12.12s %-6s %-30s",suites[i].name,"PASS","BENCH FAIL");
         }else ++passed;
     }
+#ifdef PS2_SPR_BENCH
+    if (failures == 0 && !benchmark_ghash_spr()) {
+        ++failures;
+        puts("GHASH_SPR_RESULT,FAIL");
+    }
+#endif
     scr_setXY(0,22);
     scr_setfontcolor(failures?0x000000ff:0x0000ff00);
     scr_printf("RESULT: %s | CHECK+BENCH %2d/%2u | FAILURES=%d    ",
