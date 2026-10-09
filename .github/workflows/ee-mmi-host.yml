@@ -1,7 +1,7 @@
 name: EEMMI host smoke test
 on:
   push:
-    branches: [EEMMI, 'codex/ps2-ee-mmi-test']
+    branches: [ps2-ee-mmi]
     paths:
       - "Configurations/50-ee-mmi.conf"
       - "crypto/chacha/chacha-ee-mmi.*"
