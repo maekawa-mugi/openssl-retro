@@ -28,6 +28,15 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
                        const uint32_t *b, const uint32_t *mod,
                        uint32_t n0, size_t num);
 
+/* Experimental fused R5900 CIOS row. Never link the ASM backend
+ * without its independent known-answer and boundary tests. Enabled
+ * ONLY via EE_MMI_BN_ROW_FUSED and not part of default libcrypto.
+ * It integrates every 2-product PMULTUW with carry propagation
+ * across the entire addmul row, then returns the final carry.
+ */
+uint32_t ossl_ee_bn_muladd_row_mmi(uint32_t *t, const uint32_t *a,
+                                    uint32_t multiplier, size_t num);
+
 /* Performs two exact 32x32 unsigned multiplies in parallel. x and y
  * are 16-byte-aligned arrays of four words, only indices 0,1 matter.
  * out is 16-byte aligned; out[0] and out[1] contain full 64-bit
