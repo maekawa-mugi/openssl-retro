@@ -83,20 +83,34 @@ static int exercise_row_direct(void)
             memset(&guard, 0xa5, sizeof(guard));
             memcpy(guard.t, before, n*sizeof(uint32_t));
             carry=ossl_ee_bn_muladd_row_mmi(guard.t,a,multiplier,n);
-            if (carry != (uint32_t)c
-                || memcmp(expected,guard.t,n*sizeof(uint32_t)) != 0) {
+            /* The direct ABI test must compare full unsigned limbs,
+             * not depend on the PS2 libc bytewise memcmp path. The
+             * previous PCSX2 log reported a memcmp mismatch at n=1
+             * while the returned carry and every 32-bit limb matched.
+             * XOR all public-count limbs so real arithmetic failures
+             * are still rejected and precisely identified. */
+            {
+                uint32_t difference=0;
                 size_t first=n;
-                for(j=0;j<n;++j)
-                    if(expected[j]!=guard.t[j]){first=j;break;}
-                printf("BN_ROW_FAIL,n=%lu,trial=%u,limb=%lu,"
-                       "got_carry=%08lx,want_carry=%08lx,"
-                       "got_word=%08lx,want_word=%08lx\n",
-                       (unsigned long)n,trial,(unsigned long)first,
-                       (unsigned long)carry,(unsigned long)(uint32_t)c,
-                       (unsigned long)(first<n?guard.t[first]:0),
-                       (unsigned long)(first<n?expected[first]:0));
-                fflush(stdout);
-                return 0;
+                for(j=0;j<n;++j) {
+                    uint32_t mismatch=expected[j]^guard.t[j];
+                    difference |= mismatch;
+                    if(mismatch != 0 && first==n)
+                        first=j;
+                }
+                if (carry != (uint32_t)c || difference != 0) {
+                    printf("BN_ROW_FAIL,n=%lu,trial=%u,limb=%lu,"
+                           "got_carry=%08lx,want_carry=%08lx,"
+                           "got_word=%08lx,want_word=%08lx,"
+                           "diff_or=%08lx\n",
+                           (unsigned long)n,trial,(unsigned long)first,
+                           (unsigned long)carry,(unsigned long)(uint32_t)c,
+                           (unsigned long)(first<n?guard.t[first]:0),
+                           (unsigned long)(first<n?expected[first]:0),
+                           (unsigned long)difference);
+                    fflush(stdout);
+                    return 0;
+                }
             }
             for (g=0; g<4; ++g)
                 if (guard.pre[g] != 0xa5a5a5a5U
