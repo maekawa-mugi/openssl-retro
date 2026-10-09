@@ -25,12 +25,16 @@ flags=(-O2 -march=r5900 -G0 -D_EE -std=c99 -Wall -Wextra
 # Each scheduled variant retains the original exported symbol and
 # test suite. Only the A kernel changes; the scalar B and fused F
 # comparison paths are kept bit-identical.
-for setting in PS2_SCHED_CHACHA PS2_SCHED_AES PS2_SCHED_BN; do
+for setting in PS2_SCHED_CHACHA PS2_SCHED_BN; do
     value=${!setting:-0}
     [[ "$value" == 0 || "$value" == 1 ]] || {
         echo "Invalid $setting=$value (expected 0 or 1)" >&2; exit 2;
     }
 done
+case "${PS2_SCHED_AES:-2}" in
+    0|1|2) ;;
+    *) echo "PS2_SCHED_AES must be 0, 1 or 2" >&2; exit 2 ;;
+esac
 case "${PS2_SCHED_GHASH:-0}" in
     0|1|2|3|4) ;;
     *) echo "PS2_SCHED_GHASH must be 0..4" >&2; exit 2 ;;
@@ -75,16 +79,18 @@ if [[ ${PS2_SCHED_BN:-1} == 1 ]]; then
     flags+=(-DEE_MMI_BN_ROW_FUSED)
     bn_extra=(crypto/bn/bn-ee-row-mmi.S)
 fi
-if [[ ${PS2_SCHED_AES:-0} == 1 ]]; then
+if [[ ${PS2_SCHED_AES:-2} == 1 ]]; then
     aes_asm=crypto/aes/aes-ee-mmi-keyearly.S
 fi
+# AES K2 uses the baseline MMI round assembler with a new fixed-logic
+# GF(16) tower S-box in the AES C implementation (not a lookup table).
 echo "EE A kernels: ChaCha=$chacha_asm SHA=$sha_asm GHASH=$ghash_asm AES=$aes_asm"
 # Embed each A kernel's scheduling ID into the actual ELF, so serial
 # logs and screenshots identify precisely which experiment was run.
 flags+=("-DPS2_CONFIG_CHACHA=${PS2_SCHED_CHACHA:-0}"
         "-DPS2_CONFIG_SHA=${PS2_SCHED_SHA:-0}"
         "-DPS2_CONFIG_GHASH=${PS2_SCHED_GHASH:-0}"
-        "-DPS2_CONFIG_AES=${PS2_SCHED_AES:-0}"
+        "-DPS2_CONFIG_AES=${PS2_SCHED_AES:-2}"
         "-DPS2_CONFIG_BN=${PS2_SCHED_BN:-1}")
 objects=()
 if [[ ${PS2_AB:-0} == 1 ]]; then
@@ -183,6 +189,10 @@ for src in \
     crypto/rsa/rsa-ee-mmi.c crypto/ec/p256-ee-mmi.c test/ps2/main.c; do
     if [[ $src == crypto/poly1305/poly1305-ee-mmi.c ]]; then
         compile "$src" -DEE_MMI_POLY1305_FUSED_MADD
+    elif [[ $src == crypto/aes/aes-ee-mmi.c && ${PS2_SCHED_AES:-2} == 2 ]]; then
+        # The 4-lane tower S-box changes only optimized A; scalar B stays
+        # on the previous constant-time reference implementation.
+        compile "$src" -DEE_MMI_AES_TOWER_SBOX
     else
         compile "$src"
     fi
