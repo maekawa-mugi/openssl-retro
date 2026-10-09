@@ -16,7 +16,7 @@ assert "static double median6(" in runner
 assert "median6(samples[mode])" in runner
 assert "(step + sample) & 1U" in runner
 assert "(step + sample) % 3U" in runner
-assert "if (!validate_one(i))" in runner
+assert re.search(r"if\\s*\\(\\s*!validate_one\\(i\\)\\s*\\)", runner)
 assert "b_ps2_bench_run" in runner and "f_ps2_bench_run" in runner
 assert "backends[mode].reset(suite);" in runner
 assert "GetTimerSystemTime() - start" in runner
