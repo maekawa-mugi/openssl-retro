@@ -68,6 +68,14 @@ if [[ ${PS2_SCHED_GHASH:-0} == 3 || ${PS2_SCHED_GHASH:-0} == 4 ]]; then
         flags+=(-DEE_MMI_GHASH_WINDOW_BITS=8)
     fi
 fi
+if [[ ${PS2_SPR_BENCH:-0} == 1 ]]; then
+    [[ ${PS2_AB:-0} == 1 && ( ${PS2_SCHED_GHASH:-0} == 3 || ${PS2_SCHED_GHASH:-0} == 4 ) ]] || {
+        echo "PS2_SPR_BENCH=1 requires PS2_AB=1 and PS2_SCHED_GHASH=3 or 4" >&2; exit 2;
+    }
+    flags+=(-DPS2_SPR_BENCH)
+elif [[ ${PS2_SPR_BENCH:-0} != 0 ]]; then
+    echo "PS2_SPR_BENCH must be 0 or 1" >&2; exit 2
+fi
 bn_extra=()
 if [[ ${PS2_SCHED_BN:-0} == 1 ]]; then
     flags+=(-DEE_MMI_BN_ROW_FUSED)
