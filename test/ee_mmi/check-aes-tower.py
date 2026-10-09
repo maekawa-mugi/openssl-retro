@@ -15,9 +15,9 @@ def verify_matrix(label, name, masks):
     body = SRC.split("static uint32_t "+name+"(uint32_t x)",1)[1]
     body = body.split("return ",1)[0]
     for i, mask in enumerate(masks):
-        match = re.search(r"uint32_t v"+str(i)+r"\\s*=\\s*([^;]+);",body)
+        match = re.search(r"uint32_t v"+str(i)+r"\s*=\s*([^;]+);",body)
         assert match, (label,i)
-        terms = re.findall(r"p(\\d+)",match.group(1))
+        terms = re.findall(r"p(\d+)",match.group(1))
         reconstructed = sum(1 << int(j) for j in terms)
         assert reconstructed == mask, (label,i,mask,reconstructed)
 
