@@ -289,6 +289,7 @@ static int benchmark_one(unsigned int suite)
 #include <string.h>
 void ossl_ee_ghash_mul4(uint32_t [4][4], const uint32_t [4][4], const uint32_t [4][4]);
 void ossl_ee_ghash_mul4_spr_bench(uint32_t [4][4], const uint32_t [4][4], const uint32_t [4][4]);
+int ps2_spr_io_benchmark(void);
 static int benchmark_ghash_spr(void)
 {
     uint32_t x[4][4] __attribute__((aligned(16)));
@@ -397,6 +398,10 @@ int main(void)
     if (failures == 0 && !benchmark_ghash_spr()) {
         ++failures;
         puts("GHASH_SPR_RESULT,FAIL");
+    }
+    if (failures == 0 && !ps2_spr_io_benchmark()) {
+        ++failures;
+        puts("CRYPTO_SPR_RESULT,FAIL");
     }
 #endif
     scr_setXY(0,22);
