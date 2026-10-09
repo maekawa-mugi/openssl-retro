@@ -13,13 +13,22 @@ regression was observed on the old unfused A kernel; speed of the new
 default still requires a real-EE retest.
 
 The whole-row PMULTUW Montgomery backend is now the default in the
-standalone PS2 build (`BN1`), affecting BN, RSA and P-256. Pass
+standalone PS2 build (`BN1`), affecting BN, RSA and P-256. For P-256,
+a fixed-prime reduction exploits the three zero 32-bit limbs of the
+NIST modulus without secret-dependent memory accesses. Pass
 `PS2_SCHED_BN=0` to benchmark the old two-product baseline.
 This selection is not a proof of speedup until measured on real EE.
 The GHASH G3/G4 fixed-scan window backend now prepares H only once
 per multi-block update and reuses the same table through AES-GCM
 AAD, payload authentication, and tag calculation. For the original
 bit-serial GHASH baseline, explicitly use `PS2_SCHED_GHASH=0`.
+
+The AES K2 candidate is a new constant-address GF(16) tower S-box:
+no secret-indexed lookup table and no input-dependent branches. It is
+the PS2 build default (`PS2_SCHED_AES=2`), while `K0` restores the
+original packed GF(256) exponentiation and `K1` retains the earlier
+round-key scheduling experiment. Host NIST/vector verification covers
+both old and new AES paths; hardware speed still needs measurement.
 
 The PS2 GS UI uses white text, except for the status word PASS in
 green. The B/A column is **always** scalar-time / MMI-time, even
@@ -67,7 +76,7 @@ The Poly1305 fused PMADDUW variant is not selected in this ELF.
 
 In addition to the original A/B/F comparator, use
 `bash test/ps2/build-variants.sh build-ps2-schedules` to build
-**eleven** independently selected A kernels: the original reference,
+**twelve** independently selected A kernels: the original reference,
 ChaCha20 interleaved quarter rounds, SHA Ch-first, SHA two-round
 unrolled, GHASH mask-first, GHASH four-bit-unrolled,
 AES round-key-early, a constant-time four-bit and eight-bit
@@ -75,7 +84,8 @@ GHASH window, a fused Montgomery addmul-row (PMULTUW), and
 an all-scheduled combination.
 Every ELF retains the same scalar B and fused Poly1305 F controls,
 correctness gating, output digest checks and median timing.
-All schedule variants default to **off**.
+The ordinary PS2 build now defaults to **AES K2** and **BN1**;
+`PS2_SCHED_AES=0 PS2_SCHED_BN=0` restores the previous baseline.
 `PS2_SCHED_GHASH=3` selects the 4-bit MMI masked lookup;
 `PS2_SCHED_GHASH=4` selects the 8-bit split-table lookup;
 `PS2_SCHED_BN=1` selects the fused PMULTUW addmul-row.
@@ -113,7 +123,7 @@ The new screen has two independent phases.
    screen output in the measured interval. Check and compare output
    checksums after stopping each timer; differences count as failures.
 
-A = default MMI (unfused Poly1305 PMULTUW product matrix);
+A = MMI (fused PMULTUW/PMADDUW Poly1305 accumulation by default);
 B = scalar C for ChaCha/SHA/Poly/AES/GHASH/BN/X25519/RSA/P-256;
 F = Poly1305 PADDW + fused PMULTUW/PMADDUW, built from the genuine
 poly1305-ee-pmadduw.S. A/B/F have separate symbol namespaces.
