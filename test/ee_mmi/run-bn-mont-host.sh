@@ -5,9 +5,13 @@ cd "$(dirname "$0")/../.."
 CC="${CC:-cc}"
 OUT="${OUT:-/tmp/ee-bn-mont-host}"
 CFLAGS="${CFLAGS:--O2}"
+EXTRA=""
+if [ "${EE_BN_ROW:-0}" = 1 ]; then
+  EXTRA="-DEE_MMI_BN_ROW_FUSED -DEE_MMI_BN_ROW_HOST_TEST"
+fi
 # shellcheck disable=SC2086
 "$CC" -std=c99 $CFLAGS -Wall -Wextra -Werror \
-  -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+  -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST $EXTRA \
   -Iinclude -I. \
   crypto/bn/bn-ee-mmi.c test/ee_mmi/bn_mont_test.c \
   -o "$OUT"
