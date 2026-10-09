@@ -43,4 +43,15 @@ bash -n test/ps2/build-variants.sh
     -I"$tmp" -DPS2_AB test/ps2/main.c
 python3 test/ps2/check-bench.py
 python3 test/ps2/check-schedules.py
+python3 test/ee_mmi/check-bn-row.py
+python3 test/ee_mmi/check-ghash-windows.py
+"$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+    -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_ROW_FUSED \
+    -Iinclude -I. crypto/bn/bn-ee-mmi.c
+for width in 4 8; do
+    "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+        -DEE_MMI_GHASH_WINDOW_HOST \
+        "-DEE_MMI_GHASH_WINDOW_BITS=$width" \
+        -Iinclude -I. crypto/modes/ghash-ee-window.c
+done
 printf 'PASS: PS2 A/B/F benchmark host syntax and linkage-plan checks\n'
