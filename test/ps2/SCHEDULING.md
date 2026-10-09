@@ -1,10 +1,10 @@
 # PS2 EE MMI dependency and scheduling experiments
 
-These are **opt-in alternatives** for the PS2 A/B/F standalone harness
-on the ps2-ee-mmi branch. All original A kernels remain
-unchanged. The scalar B and Poly1305 fused F comparison paths are
-unchanged between builds. New kernels are not enabled by default in
-libcrypto, EVP, TLS, or the FIPS provider.
+These are isolated A/B/F standalone benchmark variants on the
+ps2-ee-mmi branch. The former A implementations remain selectable;
+A now defaults to fused Poly1305, K2 tower-field AES and BN1 fused-row
+Montgomery. Scalar B and the independent Poly1305 F control are retained.
+No new backend is enabled in libcrypto, EVP, TLS or the FIPS provider.
 
 ## Hardware basis
 
@@ -32,8 +32,9 @@ or GHASH loops in a real cache/call environment. Measure hardware.
 | ChaCha20 | chacha-ee-mmi.S | C: chacha-ee-mmi-interleave.S | Interleave four **disjoint** quarter rounds step-by-step to increase dependency separation; more I-cache pressure |
 | SHA-224/256 | sha256-ee-mmi.S | S1: sha256-ee-mmi-sched.S | Compute Ch(E,F,G) before Sigma1; W/K load-use delay overlap; SHA schedule C cost unchanged |
 | SHA-224/256 | sha256-ee-mmi.S | S2: sha256-ee-mmi-unroll2.S | S1 with two rounds per branch, 64 -> 32 loop iterations; larger inner-loop footprint |
-| Poly1305 | poly1305-ee-pmultuw.S | F: poly1305-ee-pmadduw.S | Fused PMULTUW+PMADDUW accumulates exact terms in HI/LO; 800 -> 160 bytes of intermediate results (existing test F) |
-| AES | aes-ee-mmi.S | K: aes-ee-mmi-keyearly.S | Load round key before MixColumns; **scalar C S-box still dominates** |
+| Poly1305 | old 800-byte products | A/F: poly1305-ee-pmadduw.S | Fused PMULTUW+PMADDUW produces 160 bytes of exact 64-bit sums; old products remain an isolated correctness oracle |
+| AES | aes-ee-mmi.S | K1: aes-ee-mmi-keyearly.S | Load key before MixColumns; original packed GF(256) S-box still shared with scalar B |
+| AES | packed GF(256) | K2: constant-time GF(16) tower S-box | New fixed linear input/output basis, branch-free four-byte arithmetic, no secret-indexed tables; full S-box and host NIST vectors independently checked |
 | AES-GCM | aes-gcm-ee-mmi.c + AES/GHASH MMI | Integrated four-lane CTR/GHASH | Reuses one key schedule and GHASH H, passes ciphertext straight into packed GHASH, handles padded AAD and length blocks; A/B tests 256-byte authenticated messages |
 | GHASH | ghash-ee-mmi.S | G1: ghash-ee-mmi-sched.S | Calculate independent low-bit reduction mask ahead of Z update and advance X bit early |
 | GHASH | ghash-ee-mmi.S | G2: ghash-ee-mmi-unroll4.S | G1 with four bit rounds per branch, reducing 128 -> 32 loop branches per 128-bit multiply; no carry-less hardware multiply |
@@ -46,13 +47,14 @@ or GHASH loops in a real cache/call environment. Measure hardware.
 
 All candidate code is new and **unverified on real EE**. Instruction
 reordering and loop unrolling can make things **slower**, especially in
-the 16KB EE instruction cache. The AES S-box now uses a fixed inversion addition-chain with
-4 general GF multiplications and 7 linear bitwise squares; GHASH bit
-serial algorithm, and RSA/P-256 higher-level work are still scalar.
+the 16KB EE instruction cache. AES K0/K1 retain a fixed GF(256) inversion addition chain (four
+multiplications and seven squarings). AES K2 replaces it with GF(16)
+tower arithmetic but has not yet been timed on real EE. P-256 now has
+fixed-modulus reduction combined with the BN1 row helper.
 
 ## Build and compare
 
-Build all **eleven** A/B/F ELF configurations with the same flags, SDK,
+Build all **twelve** A/B/F ELF configurations with the same flags, SDK,
 and source revision:
 
 ~~~sh
@@ -112,10 +114,10 @@ G3 (PS2_SCHED_GHASH=3) implements a 4-bit window; G4
 (PS2_SCHED_GHASH=4) implements 8-bit windows as two 4-bit
 tables. An R5900 MMI PCEQW/PAND/PXOR kernel scans ALL 16
 table entries at fixed addresses; selector values NEVER choose
-a cache-visible table address. Table precomputation runs for
-every multiplication and may make both alternatives slower
-than bit-serial GHASH. Both preserve the same GHASH ABI,
-so AES-GCM selects the same experimental multiplication.
+a cache-visible table address. Window tables are now constructed ONCE per multi-block GHASH update
+and ONCE per AES-GCM seal/open operation, then securely wiped. Both
+retain constant-address scans. This reduces redundant work, but real
+EE timings may still favor the bit-serial G0 implementation.
 
 Host model/correctness commands:
 
