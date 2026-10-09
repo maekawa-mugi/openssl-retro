@@ -26,14 +26,24 @@
     .globl ossl_ee_bn_muladd_row_mmi
     .ent ossl_ee_bn_muladd_row_mmi
 ossl_ee_bn_muladd_row_mmi:
-    daddiu  $sp, $sp, -64
-    /* [0..15] product, [16..31] broadcast multiplier,
-     * [32..47] 2 packed operand words, [48..63] unused. */
-    sw      $a2, 16($sp)
-    sw      $a2, 20($sp)
-    sw      $zero, 24($sp)
-    sw      $zero, 28($sp)
-    lq      $12, 16($sp)
+    /* R5900 LQ/SQ require 16-byte addresses. O32 guarantees at
+     * most 8-byte stack alignment at arbitrary call boundaries.
+     * Reserve 64 bytes plus 15 bytes of slop, round a PRIVATE
+     * scratch pointer up to 16, and restore the exact original SP.
+     * A C caller's stack alignment must never determine correctness.
+     *
+     * $v1 (GPR3) is caller-clobbered and unused by the row body.
+     * [0..15] product, [16..31] broadcast multiplier,
+     * [32..47] 2 packed operand words, [48..63] wiped padding. */
+    daddiu  $sp, $sp, -80
+    daddiu  $v1, $sp, 15
+    dsrl    $v1, $v1, 4
+    dsll    $v1, $v1, 4
+    sw      $a2, 16($v1)
+    sw      $a2, 20($v1)
+    sw      $zero, 24($v1)
+    sw      $zero, 28($v1)
+    lq      $12, 16($v1)
     psraw   $13, $12, 31
     pextlw  $12, $13, $12
     daddu   $8, $zero, $zero   /* 64-bit carry, at most 32 bits */
@@ -50,17 +60,17 @@ ossl_ee_bn_muladd_row_mmi:
 .Lee_bn_row_odd:
     daddu   $10, $zero, $zero
 .Lee_bn_row_operands:
-    sw      $9, 32($sp)
-    sw      $10, 36($sp)
-    sw      $zero, 40($sp)
-    sw      $zero, 44($sp)
-    lq      $11, 32($sp)
+    sw      $9, 32($v1)
+    sw      $10, 36($v1)
+    sw      $zero, 40($v1)
+    sw      $zero, 44($v1)
+    lq      $11, 32($v1)
     psraw   $13, $11, 31
     pextlw  $11, $13, $11
     pmultuw $14, $11, $12
-    sq      $14, 0($sp)
+    sq      $14, 0($v1)
 
-    ld      $9, 0($sp)
+    ld      $9, 0($v1)
     lwu     $10, 0($a0)
     daddu   $9, $9, $10
     daddu   $9, $9, $8
@@ -70,7 +80,7 @@ ossl_ee_bn_muladd_row_mmi:
     addiu   $a3, $a3, -1
     beqz    $a3, .Lee_bn_row_finish
     nop
-    ld      $9, 8($sp)
+    ld      $9, 8($v1)
     lwu     $10, 4($a0)
     daddu   $9, $9, $10
     daddu   $9, $9, $8
@@ -86,10 +96,10 @@ ossl_ee_bn_muladd_row_mmi:
     daddu   $v0, $8, $zero
     /* Wipe operands and products retained in stack slots, never
      * depend on compiler optimizations to remove this cleanup. */
-    sq      $zero, 0($sp)
-    sq      $zero, 16($sp)
-    sq      $zero, 32($sp)
-    daddiu  $sp, $sp, 64
+    sq      $zero, 0($v1)
+    sq      $zero, 16($v1)
+    sq      $zero, 32($v1)
+    daddiu  $sp, $sp, 80
     jr      $ra
     nop
     .end ossl_ee_bn_muladd_row_mmi
