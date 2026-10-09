@@ -5,6 +5,7 @@ cd "$(dirname "$0")/../.."
 CC="${CC:-mips64r5900el-ps2-elf-gcc}"
 CFLAGS="${CFLAGS:--O2 -march=r5900 -G0}"
 LDFLAGS="${LDFLAGS:-}"
+ORIGINAL_OUT="${OUT:-}"
 if [ "${EE_BN_SCALAR:-0}" = 1 ]; then
   OUT="${OUT:-ee_bn_mont_scalar_test.elf}"
   CFLAGS="$CFLAGS -DEE_MMI_BN_SCALAR_MUL"
@@ -21,7 +22,7 @@ if [ "${EE_BN_ROW:-0}" = 1 ]; then
   fi
   CFLAGS="$CFLAGS -DEE_MMI_BN_ROW_FUSED"
   ASM_SOURCE="$ASM_SOURCE crypto/bn/bn-ee-row-mmi.S"
-  OUT="${OUT:-ee_bn_mont_row_fused_test.elf}"
+  if [ -z "$ORIGINAL_OUT" ]; then OUT=ee_bn_mont_row_fused_test.elf; fi
 fi
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -std=c99 -DEE_MMI_BN_STANDALONE \
