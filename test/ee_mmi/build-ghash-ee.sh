@@ -6,6 +6,7 @@ cd "$(dirname "$0")/../.."
 CC="${CC:-mips64r5900el-ps2-elf-gcc}"
 CFLAGS="${CFLAGS:--O2 -march=r5900 -G0}"
 LDFLAGS="${LDFLAGS:-}"
+ORIGINAL_OUT="${OUT:-}"
 if [ "${EE_GHASH_SCALAR:-0}" = 1 ]; then
   OUT="${OUT:-ee_ghash_scalar_test.elf}"
   CFLAGS="$CFLAGS -DEE_MMI_GHASH_SCALAR_MULTIPLY"
@@ -28,7 +29,7 @@ if [ "${EE_GHASH_WINDOW:-0}" != 0 ]; then
   CFLAGS="$CFLAGS -DEE_MMI_GHASH_WINDOW_BITS=${EE_GHASH_WINDOW}"
   ASM_SRC=crypto/modes/ghash-ee-window-mmi.S
   WINDOW_SRC=crypto/modes/ghash-ee-window.c
-  OUT="${OUT:-ee_ghash_window_${EE_GHASH_WINDOW}_test.elf}"
+  if [ -z "$ORIGINAL_OUT" ]; then OUT="ee_ghash_window_${EE_GHASH_WINDOW}_test.elf"; fi
 fi
 # Intentional word splitting for caller CFLAGS/LDFLAGS.
 # shellcheck disable=SC2086
