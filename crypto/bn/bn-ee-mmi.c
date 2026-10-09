@@ -32,6 +32,7 @@ static void ee_mont_wipe(void *ptr, size_t len)
         p[i] = 0;
 }
 
+#ifndef EE_MMI_BN_ROW_FUSED
 static void ee_mont_multiply2(uint64_t product[2],
                              uint32_t x[4], uint32_t y[4])
 {
@@ -42,6 +43,7 @@ static void ee_mont_multiply2(uint64_t product[2],
     ossl_ee_bn_mul2(product, x, y);
 #endif
 }
+#endif /* !EE_MMI_BN_ROW_FUSED */
 
 int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
                        const uint32_t *b, const uint32_t *mod,
@@ -49,9 +51,11 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
 {
     uint32_t t[OSSL_EE_BN_MONT_MAX_WORDS + 2] = {0};
     uint32_t diff[OSSL_EE_BN_MONT_MAX_WORDS];
+#ifndef EE_MMI_BN_ROW_FUSED
     uint32_t x[4] __attribute__((aligned(16))) = {0};
     uint32_t y[4] __attribute__((aligned(16))) = {0};
     uint64_t product[2] __attribute__((aligned(16))) = {0};
+#endif
     uint32_t low_borrow, choose_t, mask;
     size_t i, j;
 
@@ -61,6 +65,31 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
         || (uint32_t)(mod[0] * n0) != UINT32_MAX)
         return 0;
 
+#ifdef EE_MMI_BN_ROW_FUSED
+    for (i = 0; i < num; ++i) {
+        uint64_t z;
+        uint32_t carry, q;
+        /* One assembler call per whole row, not one per pair.
+         * All loop bounds and memory addresses are public-size
+         * dependent, and both rows use exact unsigned 32-bit limbs. */
+        carry = ossl_ee_bn_muladd_row_mmi(t, a, b[i], num);
+        z = (uint64_t)t[num] + carry;
+        t[num] = (uint32_t)z;
+        t[num + 1] += (uint32_t)(z >> 32);
+        q = (uint32_t)(t[0] * n0);
+        carry = ossl_ee_bn_muladd_row_mmi(t, mod, q, num);
+        z = (uint64_t)t[num] + carry;
+        /* The first REDC word must be 0. Shift the accumulator
+         * by one 32-bit limb. Compilers can lower this fixed-size
+         * public loop to efficient word loads/stores; the old CIOS
+         * loop performs the same shift while walking its REDC row. */
+        for (j = 1; j < num; ++j)
+            t[j - 1] = t[j];
+        t[num - 1] = (uint32_t)z;
+        t[num] = t[num + 1] + (uint32_t)(z >> 32);
+        t[num + 1] = 0;
+    }
+#else
     for (i = 0; i < num; ++i) {
         uint64_t carry = 0, z;
         uint32_t q;
@@ -110,6 +139,7 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
         t[num] = t[num + 1] + (uint32_t)(z >> 32);
         t[num + 1] = 0;
     }
+#endif
 
     /* One conditional subtraction. For canonical reduced inputs,
      * t is < 2*mod, and t[num] is at most 1. Subtract into a
@@ -129,9 +159,11 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
 
     ee_mont_wipe(t, sizeof(t));
     ee_mont_wipe(diff, sizeof(diff));
+#ifndef EE_MMI_BN_ROW_FUSED
     ee_mont_wipe(x, sizeof(x));
     ee_mont_wipe(y, sizeof(y));
     ee_mont_wipe(product, sizeof(product));
+#endif
     return 1;
 }
 
