@@ -234,4 +234,15 @@ for setting in ("CHACHA","SHA","GHASH","AES"):
     assert "PS2_CONFIG_"+setting in runner
     assert "PS2_CONFIG_"+setting in build
 assert "PS2 SCHEDULE C=" in runner
-print("PASS: all four scheduled A kernels are independently selectable")
+assert "PS2_SCHED_BN" in build
+assert "bn-ee-row-mmi.S" in build
+assert "ghash-ee-window.c" in build
+assert "ghash-ee-window-mmi.S" in build
+assert "PS2_CONFIG_BN" in runner
+assert "PS2_CONFIG_BN" in build
+assert "ghash_window4" in read("test/ps2/build-variants.sh")
+assert "ghash_window8" in read("test/ps2/build-variants.sh")
+assert "bn_fused_row" in read("test/ps2/build-variants.sh")
+assert "-UEE_MMI_BN_ROW_FUSED" in build
+assert "-UEE_MMI_GHASH_WINDOW_BITS" in build
+print("PASS: all four scheduled A kernels + BN fused/GHASH windows selectable")
