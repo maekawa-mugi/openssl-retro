@@ -108,7 +108,13 @@ finish_compiles() {
     compile_pids=()
 }
 for suite in chacha20 sha256 poly1305 aes ghash bn_mont x25519 rsa p256_ecdh aes_gcm; do
-    compile "test/ee_mmi/${suite}_test.c" "-Dmain=ps2_test_$suite"
+    if [[ $suite == poly1305 ]]; then
+        # Default to 160-byte fused sums instead of 800-byte PMULTUW
+        # product matrices. Scalar B and independent fused F stay isolated.
+        compile "test/ee_mmi/${suite}_test.c" "-Dmain=ps2_test_$suite" -DEE_MMI_POLY1305_FUSED_MADD
+    else
+        compile "test/ee_mmi/${suite}_test.c" "-Dmain=ps2_test_$suite"
+    fi
 done
 if [[ ${PS2_AB:-0} == 1 ]]; then
     # The timing workload must not include differential/KAT checks.
@@ -167,13 +173,17 @@ for src in \
     crypto/chacha/chacha-ee-mmi.c "$chacha_asm" \
     crypto/sha/sha256-ee-mmi.c "$sha_asm" \
     crypto/poly1305/poly1305-ee-mmi.c crypto/poly1305/poly1305-ee-mmi.S \
-    crypto/poly1305/poly1305-ee-pmultuw.S \
+    crypto/poly1305/poly1305-ee-pmadduw.S \
     crypto/aes/aes-ee-mmi.c "$aes_asm" \
     crypto/modes/ghash-ee-mmi.c crypto/modes/aes-gcm-ee-mmi.c "$ghash_asm" "${ghash_extra[@]}" \
     crypto/bn/bn-ee-mmi.c crypto/bn/bn-ee-mmi.S "${bn_extra[@]}" \
     crypto/ec/x25519-ee-mmi.c crypto/ec/x25519-ee-mmi.S \
     crypto/rsa/rsa-ee-mmi.c crypto/ec/p256-ee-mmi.c test/ps2/main.c; do
-    compile "$src"
+    if [[ $src == crypto/poly1305/poly1305-ee-mmi.c ]]; then
+        compile "$src" -DEE_MMI_POLY1305_FUSED_MADD
+    else
+        compile "$src"
+    fi
 done
 finish_compiles
 "$cc" -march=r5900 -G0 "-B$crt_dir/" \
