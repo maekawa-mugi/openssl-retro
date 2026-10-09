@@ -20,6 +20,9 @@
 #ifndef PS2_CONFIG_AES
 # define PS2_CONFIG_AES 0
 #endif
+#ifndef PS2_CONFIG_BN
+# define PS2_CONFIG_BN 0
+#endif
 #ifdef PS2_AB
 #include <timer.h>
 #endif
@@ -282,12 +285,12 @@ int main(void)
     init_scr();
     scr_printf("OpenSSL PS2 crypto-only timings\n");
     scr_printf("A:MMI  B:scalar  F:Poly PMADDUW\n");
-    scr_printf("C%d S%d G%d K%d / median6\n",
+    scr_printf("C%d S%d G%d K%d BN%d med6\n",
                PS2_CONFIG_CHACHA,PS2_CONFIG_SHA,
-               PS2_CONFIG_GHASH,PS2_CONFIG_AES);
-    printf("PS2 SCHEDULE C=%d S=%d G=%d K=%d (A only)\n",
+               PS2_CONFIG_GHASH,PS2_CONFIG_AES,PS2_CONFIG_BN);
+    printf("PS2 SCHEDULE C=%d S=%d G=%d K=%d BN=%d (A only)\n",
            PS2_CONFIG_CHACHA,PS2_CONFIG_SHA,
-           PS2_CONFIG_GHASH,PS2_CONFIG_AES);
+           PS2_CONFIG_GHASH,PS2_CONFIG_AES,PS2_CONFIG_BN);
     for (i = 0; i < suite_count; ++i) {
         if (!benchmark_one(i)) {
             ++failures;
