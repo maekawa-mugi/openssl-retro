@@ -10,6 +10,16 @@
 #include <stdint.h>
 #include <string.h>
 #include "crypto/ee_aes_gcm.h"
+#include "crypto/ee_ghash_window.h"
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+# define GCM_WIN_DECL , const ossl_ee_ghash_window_ctx *window
+# define GCM_WIN_ARG , window
+# define GCM_WIN_ROOT , &window
+#else
+# define GCM_WIN_DECL
+# define GCM_WIN_ARG
+# define GCM_WIN_ROOT
+#endif
 
 static void gcm_wipe(void *v, size_t n)
 {
@@ -35,7 +45,14 @@ static void put_be64(unsigned char *p, uint64_t x)
     put_be32(p + 4, (uint32_t)x);
 }
 
-#ifdef EE_MMI_GHASH_SCALAR_MULTIPLY
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+static void gcm_mul4(uint32_t z[4][4], const uint32_t x[4][4],
+                     const uint32_t h[4][4] GCM_WIN_DECL)
+{
+    (void)h;
+    ossl_ee_ghash_window_mul(z, x, window);
+}
+#elif defined(EE_MMI_GHASH_SCALAR_MULTIPLY)
 /* Portable baseline for an identical streaming AES-GCM implementation.
  * The production MMI build instead calls the 4-way R5900 GHASH kernel. */
 static void gcm_mul4(uint32_t z[4][4], const uint32_t x[4][4],
@@ -75,7 +92,7 @@ static void gcm_mul4(uint32_t z[4][4], const uint32_t x[4][4],
  * Loading each 16-byte ciphertext directly into X avoids an extra
  * round trip through ossl_ee_ghash_update4 and its conversion buffers. */
 static void gcm_auth_block(uint32_t state[4][4], const uint32_t h[4][4],
-                           const unsigned char *const block[4])
+                           const unsigned char *const block[4] GCM_WIN_DECL)
 {
     uint32_t x[4][4] __attribute__((aligned(16)));
     unsigned int lane, word;
@@ -83,14 +100,15 @@ static void gcm_auth_block(uint32_t state[4][4], const uint32_t h[4][4],
         for (lane = 0; lane < 4; ++lane)
             x[word][lane] = state[word][lane]
                           ^ be32(block[lane] + 4 * word);
-    gcm_mul4(state, x, h);
+    gcm_mul4(state, x, h GCM_WIN_ARG);
     gcm_wipe(x, sizeof(x));
 }
 
 /* GHASH arbitrary equal byte-length buffers, zero padding only their
  * final short block. Data and AAD may be unaligned in user memory. */
 static void gcm_auth_bytes(uint32_t state[4][4], const uint32_t h[4][4],
-                           const unsigned char *const ptrs[4], size_t len)
+                           const unsigned char *const ptrs[4], size_t len
+                           GCM_WIN_DECL)
 {
     unsigned char last[4][16] __attribute__((aligned(16))) = {{0}};
     const unsigned char *chunk[4];
@@ -99,7 +117,7 @@ static void gcm_auth_bytes(uint32_t state[4][4], const uint32_t h[4][4],
     while (len - offset >= 16) {
         for (lane = 0; lane < 4; ++lane)
             chunk[lane] = ptrs[lane] + offset;
-        gcm_auth_block(state, h, chunk);
+        gcm_auth_block(state, h, chunk GCM_WIN_ARG);
         offset += 16;
     }
     if (offset != len) {
@@ -107,7 +125,7 @@ static void gcm_auth_bytes(uint32_t state[4][4], const uint32_t h[4][4],
             memcpy(last[lane], ptrs[lane] + offset, len - offset);
             chunk[lane] = last[lane];
         }
-        gcm_auth_block(state, h, chunk);
+        gcm_auth_block(state, h, chunk GCM_WIN_ARG);
     }
     gcm_wipe(last, sizeof(last));
 }
@@ -118,7 +136,7 @@ static int gcm_ctr4(const ossl_ee_aes_gcm4_key *ctx,
                     unsigned char *const out[4],
                     const unsigned char *const in[4], size_t len,
                     const unsigned char iv[4][12],
-                    uint32_t state[4][4], int seal)
+                    uint32_t state[4][4], int seal GCM_WIN_DECL)
 {
     unsigned char count[4][16] __attribute__((aligned(16)));
     unsigned char stream[4][16] __attribute__((aligned(16)));
@@ -149,7 +167,7 @@ static int gcm_ctr4(const ossl_ee_aes_gcm4_key *ctx,
             auth[lane] = cipher[lane];
         }
         if (seal)
-            gcm_auth_block(state, ctx->h, auth);
+            gcm_auth_block(state, ctx->h, auth GCM_WIN_ARG);
         offset += n;
         if (offset < len)
             ++counter;
@@ -188,7 +206,7 @@ static int gcm_args(const ossl_ee_aes_gcm4_key *ctx,
 static int gcm_tag(const ossl_ee_aes_gcm4_key *ctx,
                    uint32_t state[4][4], unsigned char tag[4][16],
                    const unsigned char iv[4][12], size_t aad_len,
-                   size_t len)
+                   size_t len GCM_WIN_DECL)
 {
     unsigned char length_block[4][16] __attribute__((aligned(16))) = {{0}};
     unsigned char j0[4][16] __attribute__((aligned(16)));
@@ -202,7 +220,7 @@ static int gcm_tag(const ossl_ee_aes_gcm4_key *ctx,
         put_be32(j0[lane] + 12, 1);
         ptrs[lane] = length_block[lane];
     }
-    gcm_auth_block(state, ctx->h, ptrs);
+    gcm_auth_block(state, ctx->h, ptrs GCM_WIN_ARG);
     if (!ossl_ee_aes_encrypt4(mask, j0, &ctx->aes)) {
         gcm_wipe(length_block, sizeof(length_block));
         gcm_wipe(j0, sizeof(j0));
@@ -260,15 +278,24 @@ int ossl_ee_aes_gcm4_seal(const ossl_ee_aes_gcm4_key *ctx,
                            const unsigned char iv[4][12])
 {
     uint32_t state[4][4] __attribute__((aligned(16))) = {{0}};
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+    ossl_ee_ghash_window_ctx window __attribute__((aligned(16)));
+#endif
     int ok;
     if (!gcm_args(ctx, out, in, len, aad, aad_len, iv) || tags == NULL)
         return 0;
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+    ossl_ee_ghash_window_prepare(&window, ctx->h);
+#endif
     if (aad_len != 0)
-        gcm_auth_bytes(state, ctx->h, aad, aad_len);
-    ok = gcm_ctr4(ctx, out, in, len, iv, state, 1);
+        gcm_auth_bytes(state, ctx->h, aad, aad_len GCM_WIN_ROOT);
+    ok = gcm_ctr4(ctx, out, in, len, iv, state, 1 GCM_WIN_ROOT);
     if (ok)
-        ok = gcm_tag(ctx, state, tags, iv, aad_len, len);
+        ok = gcm_tag(ctx, state, tags, iv, aad_len, len GCM_WIN_ROOT);
     gcm_wipe(state, sizeof(state));
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+    ossl_ee_ghash_window_clear(&window);
+#endif
     return ok;
 }
 int ossl_ee_aes_gcm4_open(const ossl_ee_aes_gcm4_key *ctx,
@@ -279,16 +306,22 @@ int ossl_ee_aes_gcm4_open(const ossl_ee_aes_gcm4_key *ctx,
                            const unsigned char iv[4][12])
 {
     uint32_t state[4][4] __attribute__((aligned(16))) = {{0}};
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+    ossl_ee_ghash_window_ctx window __attribute__((aligned(16)));
+#endif
     unsigned char expected[4][16] __attribute__((aligned(16)));
     unsigned int lane, j, diff = 0;
     int ok = 0;
     if (!gcm_args(ctx, out, in, len, aad, aad_len, iv) || tags == NULL)
         return 0;
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+    ossl_ee_ghash_window_prepare(&window, ctx->h);
+#endif
     if (aad_len != 0)
-        gcm_auth_bytes(state, ctx->h, aad, aad_len);
+        gcm_auth_bytes(state, ctx->h, aad, aad_len GCM_WIN_ROOT);
     if (len != 0)
-        gcm_auth_bytes(state, ctx->h, in, len);
-    if (!gcm_tag(ctx, state, expected, iv, aad_len, len))
+        gcm_auth_bytes(state, ctx->h, in, len GCM_WIN_ROOT);
+    if (!gcm_tag(ctx, state, expected, iv, aad_len, len GCM_WIN_ROOT))
         goto done;
     for (lane = 0; lane < 4; ++lane)
         for (j = 0; j < 16; ++j)
@@ -298,9 +331,12 @@ int ossl_ee_aes_gcm4_open(const ossl_ee_aes_gcm4_key *ctx,
     if (len == 0)
         ok = 1;
     else
-        ok = gcm_ctr4(ctx, out, in, len, iv, state, 0);
+        ok = gcm_ctr4(ctx, out, in, len, iv, state, 0 GCM_WIN_ROOT);
 done:
     gcm_wipe(state, sizeof(state));
     gcm_wipe(expected, sizeof(expected));
+#if defined(EE_MMI_GHASH_WINDOW_BITS)
+    ossl_ee_ghash_window_clear(&window);
+#endif
     return ok;
 }
