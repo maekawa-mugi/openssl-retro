@@ -15,6 +15,14 @@ else
   ASM_SOURCE="crypto/bn/bn-ee-mmi.S"
   printf 'Building Montgomery R5900 PMULTUW two-product backend\n'
 fi
+if [ "${EE_BN_ROW:-0}" = 1 ]; then
+  if [ "${EE_BN_SCALAR:-0}" = 1 ]; then
+    echo "EE_BN_ROW=1 cannot be combined with EE_BN_SCALAR=1" >&2; exit 2
+  fi
+  CFLAGS="$CFLAGS -DEE_MMI_BN_ROW_FUSED"
+  ASM_SOURCE="$ASM_SOURCE crypto/bn/bn-ee-row-mmi.S"
+  OUT="${OUT:-ee_bn_mont_row_fused_test.elf}"
+fi
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -std=c99 -DEE_MMI_BN_STANDALONE \
   -Iinclude -I. crypto/bn/bn-ee-mmi.c \
