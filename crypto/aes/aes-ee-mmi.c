@@ -65,6 +65,31 @@ static uint32_t aes_gfmul4(uint32_t a, uint32_t b)
     return result;
 }
 
+/*
+ * GF(2^8) squaring is LINEAR over GF(2), unlike general multiplication.
+ * Byte-polynomial residues for bits 0..7 are:
+ * 01 04 10 40 1b 6c ab 9a (mod x^8+x^4+x^3+x+1).
+ * Four byte lanes are operated on independently without any
+ * indexed S-box/table loads or data-dependent branches.
+ */
+static uint32_t aes_gfsquare4(uint32_t x)
+{
+    uint32_t b;
+    uint32_t r = (x & 0x01010101U)
+               ^ ((x & 0x02020202U) << 1)
+               ^ ((x & 0x04040404U) << 2)
+               ^ ((x & 0x08080808U) << 3);
+    b = (x >> 4) & 0x01010101U;
+    r ^= b ^ (b << 1) ^ (b << 3) ^ (b << 4);
+    b = (x >> 5) & 0x01010101U;
+    r ^= (b << 2) ^ (b << 3) ^ (b << 5) ^ (b << 6);
+    b = (x >> 6) & 0x01010101U;
+    r ^= b ^ (b << 1) ^ (b << 3) ^ (b << 5) ^ (b << 7);
+    b = (x >> 7) & 0x01010101U;
+    r ^= (b << 1) ^ (b << 3) ^ (b << 4) ^ (b << 7);
+    return r;
+}
+
 static uint32_t aes_rotbyte(uint32_t x, unsigned int bits,
                             uint32_t low_mask)
 {
@@ -77,21 +102,35 @@ static uint32_t aes_rotbyte(uint32_t x, unsigned int bits,
  * Constant-time design still needs verification on the EE toolchain. */
 static uint32_t aes_sbox4(uint32_t x)
 {
-    uint32_t powers[7], inverse, s;
-    unsigned int i;
-    powers[0] = aes_gfmul4(x, x); /* x^2 */
-    for (i = 1; i < 7; ++i)
-        powers[i] = aes_gfmul4(powers[i-1], powers[i-1]);
-    inverse = powers[0];
-    for (i = 1; i < 7; ++i)
-        inverse = aes_gfmul4(inverse, powers[i]); /* x^254 */
+    uint32_t x2, x7, t, inverse, s;
+    /*
+     * Fixed addition chain:
+     * x^2, x^3, x^6, x^7, x^14, x^15,
+     * x^30, x^60, x^120, x^127, x^254.
+     * Seven cheap GF squares and only FOUR general GF multiplies
+     * instead of 13 general multiplies in the earlier exponentiation.
+     */
+    x2 = aes_gfsquare4(x);            /* 2 */
+    t = aes_gfmul4(x2, x);           /* 3 */
+    t = aes_gfsquare4(t);            /* 6 */
+    x7 = aes_gfmul4(t, x);           /* 7 */
+    t = aes_gfsquare4(x7);           /* 14 */
+    t = aes_gfmul4(t, x);            /* 15 */
+    t = aes_gfsquare4(t);            /* 30 */
+    t = aes_gfsquare4(t);            /* 60 */
+    t = aes_gfsquare4(t);            /* 120 */
+    t = aes_gfmul4(t, x7);           /* 127 */
+    inverse = aes_gfsquare4(t);      /* 254 */
     s = inverse
       ^ aes_rotbyte(inverse, 1, 0xfefefefeU)
       ^ aes_rotbyte(inverse, 2, 0xfcfcfcfcU)
       ^ aes_rotbyte(inverse, 3, 0xf8f8f8f8U)
       ^ aes_rotbyte(inverse, 4, 0xf0f0f0f0U)
       ^ 0x63636363U;
-    aes_wipe(powers, sizeof(powers));
+    aes_wipe(&x2, sizeof(x2));
+    aes_wipe(&x7, sizeof(x7));
+    aes_wipe(&t, sizeof(t));
+    aes_wipe(&inverse, sizeof(inverse));
     return s;
 }
 
