@@ -183,6 +183,9 @@ for src in \
     crypto/rsa/rsa-ee-mmi.c crypto/ec/p256-ee-mmi.c test/ps2/main.c; do
     compile "$src"
 done
+if [[ ${PS2_SPR_BENCH:-0} == 1 ]]; then
+    compile test/ps2/spr-io.c
+fi
 finish_compiles
 "$cc" -march=r5900 -G0 "-B$crt_dir/" \
     "-T$PS2SDK/ee/startup/linkfile" "-L$PS2SDK/ee/lib" \
