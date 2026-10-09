@@ -9,6 +9,7 @@ on:
       - "crypto/chacha/build.info"
       - "crypto/bn/build.info"
       - "crypto/bn/bn-ee-mmi.*"
+      - "crypto/bn/bn-ee-row-mmi.S"
       - "crypto/rsa/build.info"
       - "crypto/rsa/rsa-ee-mmi.*"
       - "include/crypto/ee_rsa_verify.h"
@@ -33,6 +34,8 @@ on:
       - "include/crypto/ee_aes_gcm.h"
       - "crypto/modes/ghash-ee-mmi-sched.S"
       - "crypto/modes/ghash-ee-mmi-unroll4.S"
+      - "crypto/modes/ghash-ee-window.c"
+      - "crypto/modes/ghash-ee-window-mmi.S"
       - "crypto/aes/build.info"
       - "crypto/aes/aes-ee-mmi.*"
       - "crypto/aes/aes-ee-mmi-keyearly.S"
@@ -64,6 +67,10 @@ jobs:
         run: python3 test/ee_mmi/check-x25519.py
       - name: Independent GHASH NIST and GF128 algebra oracle
         run: python3 test/ee_mmi/check-ghash.py
+      - name: GHASH window4/window8 constant-address BigInt oracle
+        run: python3 test/ee_mmi/check-ghash-windows.py
+      - name: BN fused addmul-row Montgomery BigInt oracle
+        run: python3 test/ee_mmi/check-bn-row.py
       - name: AES Rijndael S-box and MMI MixColumns algebra
         run: python3 test/ee_mmi/check-aes.py
       - name: RSA-2048 SHA256 PKCS1 signatures and BigInt Montgomery math
@@ -129,6 +136,16 @@ jobs:
           CC: ${{ matrix.cc }}
           CFLAGS: "-O2 -DEE_MMI_GHASH_SCALAR_MULTIPLY"
         run: sh test/ee_mmi/run-ghash-host.sh
+      - name: GHASH window4 host differential and NIST test
+        env:
+          CC: ${{ matrix.cc }}
+          EE_GHASH_WINDOW: "4"
+        run: sh test/ee_mmi/run-ghash-host.sh
+      - name: GHASH window8 host differential and NIST test
+        env:
+          CC: ${{ matrix.cc }}
+          EE_GHASH_WINDOW: "8"
+        run: sh test/ee_mmi/run-ghash-host.sh
       - name: AES-GCM four-stream NIST/96-bit IV/AAD/verify-before-decrypt emulated MMI
         env:
           CC: ${{ matrix.cc }}
@@ -150,6 +167,11 @@ jobs:
       - name: BN Montgomery CIOS differential and 32-bit unsigned MMI host model
         env:
           CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-bn-mont-host.sh
+      - name: BN fused whole-row host differential and bounds
+        env:
+          CC: ${{ matrix.cc }}
+          EE_BN_ROW: "1"
         run: sh test/ee_mmi/run-bn-mont-host.sh
       - name: BN Montgomery scalar pair-multiply baseline
         env:
