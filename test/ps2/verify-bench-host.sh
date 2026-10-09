@@ -13,6 +13,7 @@ cat > "$tmp/debug.h" <<'EOF'
 void init_scr(void);
 void scr_setXY(int, int);
 void scr_setfontcolor(uint32_t);
+void scr_setCursor(int);
 void scr_printf(const char *, ...);
 #endif
 EOF
@@ -53,5 +54,11 @@ for width in 4 8; do
         -DEE_MMI_GHASH_WINDOW_HOST \
         "-DEE_MMI_GHASH_WINDOW_BITS=$width" \
         -Iinclude -I. crypto/modes/ghash-ee-window.c
+    "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+        "-DEE_MMI_GHASH_WINDOW_BITS=$width" \
+        -Iinclude -I. crypto/modes/ghash-ee-mmi.c
+    "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+        "-DEE_MMI_GHASH_WINDOW_BITS=$width" \
+        -Iinclude -I. crypto/modes/aes-gcm-ee-mmi.c
 done
 printf 'PASS: PS2 A/B/F benchmark host syntax and linkage-plan checks\n'
