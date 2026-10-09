@@ -156,11 +156,72 @@ static void fe_sub(ee_fe *r,const ee_fe *a,const ee_fe *b)
     }
     ee_wipe(diff,sizeof(diff));
 }
+/* NIST P-256 has Montgomery n0=1 and modulus words
+ * [ffffffff,ffffffff,ffffffff,0,0,0,1,ffffffff].
+ * Multiply each 8-limb row with the existing PMULTUW fused helper.
+ * The reduction row has only FOUR nonzero terms; in particular three
+ * general 32x32 products per row are identically zero. The first
+ * REDC product cancels exactly: t[0]+t[0]*(2^32-1)=t[0]*2^32.
+ * All loop counts and indices are public. The output may alias a/b.
+ */
+#if defined(EE_MMI_BN_ROW_FUSED) && !defined(EE_MMI_BN_SCALAR_MUL)
+static void fe_mul_p256_mmi(ee_fe *r,const ee_fe *a,const ee_fe *b)
+{
+    uint32_t t[10]={0},diff[8];
+    uint32_t carry, q, borrow, keep, mask;
+    uint64_t z;
+    unsigned int i,j;
+
+    for(i=0;i<8;++i) {
+        carry=ossl_ee_bn_muladd_row_mmi(t,a->v,b->v[i],8);
+        z=(uint64_t)t[8]+carry;
+        t[8]=(uint32_t)z;
+        t[9]+=(uint32_t)(z>>32);
+
+        q=t[0];
+        /* Word zero disappears. Its carry is exactly q. */
+        carry=q;
+        for(j=1;j<8;++j) {
+            uint64_t product;
+            /* Explicitly skip the zero limbs; no branch depends on q. */
+            if(j==1 || j==2 || j==7)
+                product=((uint64_t)q<<32)-q;
+            else if(j==6)
+                product=q;
+            else
+                product=0;
+            z=(uint64_t)t[j]+product+carry;
+            t[j-1]=(uint32_t)z;
+            carry=(uint32_t)(z>>32);
+        }
+        z=(uint64_t)t[8]+carry;
+        t[7]=(uint32_t)z;
+        t[8]=t[9]+(uint32_t)(z>>32);
+        t[9]=0;
+    }
+    /* Branch-free canonical reduction of the 257-bit result. */
+    borrow=0;
+    for(i=0;i<8;++i) {
+        uint64_t sub=(uint64_t)P[i]+borrow;
+        diff[i]=(uint32_t)((uint64_t)t[i]-sub);
+        borrow=(uint32_t)((uint64_t)t[i]<sub);
+    }
+    keep=(uint32_t)(t[8]==0U)&borrow;
+    mask=0U-keep;
+    for(i=0;i<8;++i)
+        r->v[i]=(t[i]&mask)|(diff[i]&~mask);
+    ee_wipe(t,sizeof(t));
+    ee_wipe(diff,sizeof(diff));
+}
+#endif
 static void fe_mul(ee_fe *r,const ee_fe *a,const ee_fe *b)
 {
-    /* n0=1 because -p[0]^-1 = 1 modulo 2^32.
-     * Alias of output and input is supported by ee_bn_mont32(). */
+#if defined(EE_MMI_BN_ROW_FUSED) && !defined(EE_MMI_BN_SCALAR_MUL)
+    fe_mul_p256_mmi(r,a,b);
+#else
+    /* Retain the independently validated general BN oracle and B path. */
     (void)ossl_ee_bn_mont32(r->v,a->v,b->v,P,1U,8);
+#endif
 }
 static void fe_sq(ee_fe *r,const ee_fe *a)
 {
