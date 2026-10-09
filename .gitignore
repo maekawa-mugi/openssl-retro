@@ -561,6 +561,7 @@ doc-nits
 # LSP (Language Server Protocol) support
 .cache/
 compile_commands.json
+/build-ps2-mmi*/
 
 # coverage files
 *.gcda

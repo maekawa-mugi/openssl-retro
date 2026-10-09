@@ -63,6 +63,12 @@ $COMMON=cbc128.c ctr128.c cfb128.c ofb128.c gcm128.c ccm128.c xts128.c \
         wrap128.c xts128gb.c $MODESASM
 SOURCE[../../libcrypto]=$COMMON \
         cts128.c ocb128.c siv128.c
+
+# Opt-in internal four-stream R5900 MMI GHASH.
+# Do not enable GHASH_ASM or intercept gcm128.c/EVP paths.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=ghash-ee-mmi.c ghash-ee-mmi.S aes-gcm-ee-mmi.c
+ENDIF
 SOURCE[../../providers/libfips.a]=$COMMON
 
 # Implementations are now spread across several libraries, so the defines

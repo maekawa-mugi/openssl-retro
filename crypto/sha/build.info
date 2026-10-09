@@ -84,6 +84,12 @@ ENDIF
 
 $COMMON=sha1dgst.c sha256.c sha512.c sha3.c sha3_encode.c $SHA1ASM $KECCAK1600ASM
 SOURCE[../../libcrypto]=$COMMON sha1_one.c
+# EE MMI SHA-256 hashes four independent messages in parallel. It is an
+# explicit internal batch API, not a replacement for sha256_block_data_order.
+# Exclude it from no-asm and from provider/FIPS object libraries.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=sha256-ee-mmi.c sha256-ee-mmi.S
+ENDIF
 SOURCE[../../providers/libfips.a]= $COMMON
 
 # Implementations are now spread across several libraries, so the defines

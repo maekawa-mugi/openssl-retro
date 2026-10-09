@@ -31,6 +31,14 @@ ENDIF
 
 SOURCE[../../libcrypto]=poly1305.c $POLY1305ASM
 
+# Separate EE-only four-message Poly1305 batch API.
+# Deliberately do NOT set POLY1305_ASM: the existing Poly1305_*
+# calls retain OpenSSL's generic audited scalar implementation.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=poly1305-ee-mmi.c poly1305-ee-mmi.S \
+        poly1305-ee-pmultuw.S poly1305-ee-pmadduw.S
+ENDIF
+
 # Implementations are now spread across several libraries, so the defines
 # need to be applied to all affected libraries and modules.
 DEFINE[../../libcrypto]=$POLY1305DEF

@@ -118,6 +118,15 @@ $COMMON=bn_add.c bn_div.c bn_exp.c bn_lib.c bn_ctx.c bn_mul.c \
         bn_recp.c bn_mont.c bn_mpi.c bn_exp2.c bn_gf2m.c bn_nist.c \
         bn_intern.c bn_dh.c bn_rsa_fips186_5.c bn_const.c
 SOURCE[../../libcrypto]=$COMMON $BNASM bn_print.c bn_err.c bn_srp.c
+# Experimental EE R5900 Montgomery backend. Keep independent of
+# $BNASM because that is also added to the FIPS provider library.
+# No OPENSSL_BN_ASM_MONT define is installed by default: this kernel
+# has not been validated on real hardware. An explicit global
+# -DOPENSSL_BN_ASM_MONT may be used only in no-fips test builds.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=bn-ee-mmi.c bn-ee-mmi.S
+ENDIF
+
 DEFINE[../../libcrypto]=$BNDEF
 IF[{- !$disabled{'deprecated-0.9.8'} -}]
   SOURCE[../../libcrypto]=bn_depr.c

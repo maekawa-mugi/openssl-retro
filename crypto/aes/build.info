@@ -75,6 +75,12 @@ ENDIF
 
 $COMMON=aes_misc.c aes_ecb.c $AESASM
 SOURCE[../../libcrypto]=$COMMON aes_cfb.c aes_ofb.c aes_wrap.c aes_vaes512_intrinsics.c
+
+# Standalone experimental R5900 MMI four-block AES / AES-CTR engine.
+# Does not define AES_ASM, AES_CTR_ASM or change AES_encrypt/EVP.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=aes-ee-mmi.c aes-ee-mmi.S
+ENDIF
 IF[{- !$disabled{'deprecated-3.0'} -}]
   SOURCE[../../libcrypto]=aes_ige.c
 ENDIF

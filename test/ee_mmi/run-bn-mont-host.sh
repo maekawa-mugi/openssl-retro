@@ -1,0 +1,14 @@
+#!/bin/sh
+# Host C test with an exact two-product emulator (not EE hardware).
+set -eu
+cd "$(dirname "$0")/../.."
+CC="${CC:-cc}"
+OUT="${OUT:-/tmp/ee-bn-mont-host}"
+CFLAGS="${CFLAGS:--O2}"
+# shellcheck disable=SC2086
+"$CC" -std=c99 $CFLAGS -Wall -Wextra -Werror \
+  -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+  -Iinclude -I. \
+  crypto/bn/bn-ee-mmi.c test/ee_mmi/bn_mont_test.c \
+  -o "$OUT"
+"$OUT" "$@"

@@ -15,6 +15,13 @@ IF[{- !$disabled{'deprecated-3.0'} -}]
   SOURCE[../../libcrypto]=rsa_x931g.c
 ENDIF
 
+# Public-only experimental RSA-65537 and PKCS1 SHA256 verifier.
+# Reuses independently compiled EE BN Montgomery PMULTUW backend,
+# but does not alter RSA_METHOD, EVP, or the FIPS provider.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=rsa-ee-mmi.c
+ENDIF
+
 SOURCE[../../providers/libfips.a]=$COMMON
 
 IF[{- !$disabled{'acvp-tests'} -}]

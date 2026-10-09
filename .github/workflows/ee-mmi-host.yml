@@ -1,0 +1,351 @@
+name: EEMMI host smoke test
+on:
+  push:
+    branches: [EEMMI, 'codex/ps2-ee-mmi-test']
+    paths:
+      - "Configurations/50-ee-mmi.conf"
+      - "crypto/chacha/chacha-ee-mmi.*"
+      - "crypto/chacha/chacha-ee-mmi-interleave.S"
+      - "crypto/chacha/build.info"
+      - "crypto/bn/build.info"
+      - "crypto/bn/bn-ee-mmi.*"
+      - "crypto/rsa/build.info"
+      - "crypto/rsa/rsa-ee-mmi.*"
+      - "include/crypto/ee_rsa_verify.h"
+      - "include/crypto/ee_bn_mont.h"
+      - "crypto/sha/build.info"
+      - "crypto/sha/sha256-ee-mmi.*"
+      - "crypto/sha/sha256-ee-mmi-sched.S"
+      - "crypto/sha/sha256-ee-mmi-unroll2.S"
+      - "crypto/poly1305/build.info"
+      - "crypto/poly1305/poly1305-ee-mmi.*"
+      - "crypto/poly1305/poly1305-ee-pmultuw.S"
+      - "crypto/poly1305/poly1305-ee-pmadduw.S"
+      - "crypto/ec/build.info"
+      - "crypto/ec/x25519-ee-mmi.*"
+      - "crypto/ec/p256-ee-mmi.c"
+      - "include/crypto/ee_p256_ecdh.h"
+      - "crypto/ec/ee-ecdsa-p256.c"
+      - "include/crypto/ee_ecdsa_p256.h"
+      - "crypto/modes/build.info"
+      - "crypto/modes/ghash-ee-mmi.*"
+      - "crypto/modes/aes-gcm-ee-mmi.c"
+      - "include/crypto/ee_aes_gcm.h"
+      - "crypto/modes/ghash-ee-mmi-sched.S"
+      - "crypto/modes/ghash-ee-mmi-unroll4.S"
+      - "crypto/aes/build.info"
+      - "crypto/aes/aes-ee-mmi.*"
+      - "crypto/aes/aes-ee-mmi-keyearly.S"
+      - "include/crypto/ee_mmi.h"
+      - "test/ee_mmi/**"
+      - "test/ps2/**"
+      - ".github/workflows/ee-mmi-host.yml"
+  workflow_dispatch:
+jobs:
+  portable-dispatcher-test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cc: [gcc, clang]
+    steps:
+      - uses: actions/checkout@v4
+      - name: PS2 A/B/F benchmark C syntax and linker-plan checks
+        env:
+          CC: ${{ matrix.cc }}
+        run: bash test/ps2/verify-bench-host.sh
+      - name: Static MMI assembly layout checks
+        run: python3 test/ee_mmi/check-asm.py
+      - name: Model PEXTLW PEXTUW PMULTUW lane packing and 64-bit products
+        run: python3 test/ee_mmi/check-pmultuw.py
+      - name: Model PMADDUW fused 64-bit exact accumulators
+        run: python3 test/ee_mmi/check-pmadduw.py
+      - name: X25519 field arithmetic and BigInt RFC 7748 oracle
+        run: python3 test/ee_mmi/check-x25519.py
+      - name: Independent GHASH NIST and GF128 algebra oracle
+        run: python3 test/ee_mmi/check-ghash.py
+      - name: AES Rijndael S-box and MMI MixColumns algebra
+        run: python3 test/ee_mmi/check-aes.py
+      - name: RSA-2048 SHA256 PKCS1 signatures and BigInt Montgomery math
+        run: python3 test/ee_mmi/check-rsa.py
+      - name: Independent NIST P-256 ECDH BigInt point oracle
+        run: python3 test/ee_mmi/check-p256.py
+      - name: Verify BN Montgomery BigInt and full 32-bit PMULTUW oracle
+        run: python3 test/ee_mmi/check-bn-mont.py
+      - name: Independently verify P-256 ECDSA deterministic public signatures
+        run: python3 test/ee_mmi/check-ecdsa.py
+      - name: Independently verify Poly1305 BigInt golden tags
+        run: python3 test/ee_mmi/poly1305-oracle.py
+      - name: Build and run portable EE dispatcher emulation
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-host.sh
+      - name: Build and run SHA256 four-lane host emulator
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-sha256-host.sh
+      - name: X25519 four-lane host MMI C-emulator and RFC 7748
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-x25519-host.sh
+      - name: X25519 four-lane scalar field multiply A/B baseline
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_X25519_SCALAR_MULTIPLY"
+        run: sh test/ee_mmi/run-x25519-host.sh
+      - name: P-256 ECDH 10 public and 20 shared-secret host oracles
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-p256-host.sh
+      - name: P-256 ECDH scalar Montgomery multiplication baseline
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_BN_SCALAR_MUL"
+        run: sh test/ee_mmi/run-p256-host.sh
+      - name: RSA-65537 / SHA256 PKCS1 v1.5 four-job host emulation
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-rsa-host.sh
+      - name: RSA-65537 scalar 32-bit Montgomery multiply baseline
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_BN_SCALAR_MUL"
+        run: sh test/ee_mmi/run-rsa-host.sh
+      - name: AES-128/192/256 four-block NIST and CTR host emulator
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-aes-host.sh
+      - name: AES scalar MixColumns/ARK comparison build
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_AES_SCALAR_ROUND"
+        run: sh test/ee_mmi/run-aes-host.sh
+      - name: GHASH four-lane host MMI emulation with NIST vectors
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-ghash-host.sh
+      - name: GHASH scalar GF128 multiplication comparison
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_GHASH_SCALAR_MULTIPLY"
+        run: sh test/ee_mmi/run-ghash-host.sh
+      - name: AES-GCM four-stream NIST/96-bit IV/AAD/verify-before-decrypt emulated MMI
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-aes-gcm-host.sh
+      - name: AES-GCM four-stream scalar AES/GHASH comparison
+        env:
+          CC: ${{ matrix.cc }}
+          EE_GCM_SCALAR: "1"
+        run: sh test/ee_mmi/run-aes-gcm-host.sh
+      - name: ECDSA P-256 verification using EE-style Montgomery host
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-ecdsa-host.sh
+      - name: ECDSA P-256 verification using OpenSSL scalar BN_mod_mul
+        env:
+          CC: ${{ matrix.cc }}
+          EE_ECDSA_SCALAR: "1"
+        run: sh test/ee_mmi/run-ecdsa-host.sh
+      - name: BN Montgomery CIOS differential and 32-bit unsigned MMI host model
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-bn-mont-host.sh
+      - name: BN Montgomery scalar pair-multiply baseline
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_BN_SCALAR_MUL"
+        run: sh test/ee_mmi/run-bn-mont-host.sh
+      - name: Run Poly1305 batch against independent BigInt oracles
+        env:
+          CC: ${{ matrix.cc }}
+        run: sh test/ee_mmi/run-poly1305-host.sh
+      - name: Run fused PMADDUW host-mode differential vectors
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_POLY1305_FUSED_MADD"
+        run: sh test/ee_mmi/run-poly1305-host.sh
+      - name: Run Poly1305 MMI absorption with scalar multiplication
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_POLY1305_SCALAR_MULTIPLY"
+        run: sh test/ee_mmi/run-poly1305-host.sh
+      - name: Run Poly1305 completely scalar A/B baseline
+        env:
+          CC: ${{ matrix.cc }}
+          CFLAGS: "-O2 -DEE_MMI_POLY1305_SCALAR_ABSORB -DEE_MMI_POLY1305_SCALAR_MULTIPLY"
+        run: sh test/ee_mmi/run-poly1305-host.sh
+  host-sanitizers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile and run AddressSanitizer and UBSan
+        env:
+          CC: gcc
+          CFLAGS: "-fsanitize=address,undefined -fno-omit-frame-pointer"
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -DINCLUDE_C_CHACHA20 \
+            -Iinclude -I. \
+            crypto/chacha/chacha-ee-mmi.c test/ee_mmi/chacha20_test.c \
+            -o /tmp/ee-mmi-asan-ubsan
+          /tmp/ee-mmi-asan-ubsan
+      - name: AES-GCM full authentication host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_AES_SCALAR_ROUND -DEE_MMI_GHASH_SCALAR_MULTIPLY \
+            -Iinclude -I. \
+            crypto/aes/aes-ee-mmi.c crypto/modes/aes-gcm-ee-mmi.c \
+            test/ee_mmi/aes_gcm_test.c -o /tmp/ee-aes-gcm-asan
+          /tmp/ee-aes-gcm-asan
+      - name: SHA256 four-lane ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -Iinclude -I. \
+            crypto/sha/sha256-ee-mmi.c test/ee_mmi/sha256_test.c \
+            -o /tmp/ee-mmi-sha256-asan
+          /tmp/ee-mmi-sha256-asan
+      - name: X25519 four-lane host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -Iinclude -I. \
+            crypto/ec/x25519-ee-mmi.c test/ee_mmi/x25519_test.c \
+            -o /tmp/ee-x25519-asan
+          /tmp/ee-x25519-asan
+      - name: X25519 scalar field multiply ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -DEE_MMI_X25519_SCALAR_MULTIPLY \
+            -Iinclude -I. \
+            crypto/ec/x25519-ee-mmi.c test/ee_mmi/x25519_test.c \
+            -o /tmp/ee-x25519-scalar-asan
+          /tmp/ee-x25519-scalar-asan
+      - name: P-256 ECDH host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+            -Iinclude -I. crypto/bn/bn-ee-mmi.c \
+            crypto/ec/p256-ee-mmi.c test/ee_mmi/p256_ecdh_test.c \
+            -o /tmp/ee-p256-asan
+          /tmp/ee-p256-asan
+      - name: P-256 ECDH scalar multiplication ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+            -DEE_MMI_BN_SCALAR_MUL -Iinclude -I. \
+            crypto/bn/bn-ee-mmi.c crypto/ec/p256-ee-mmi.c \
+            test/ee_mmi/p256_ecdh_test.c \
+            -o /tmp/ee-p256-scalar-asan
+          /tmp/ee-p256-scalar-asan
+      - name: RSA-2048 host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+            -Iinclude -I. crypto/bn/bn-ee-mmi.c \
+            crypto/rsa/rsa-ee-mmi.c test/ee_mmi/rsa_test.c \
+            -o /tmp/ee-rsa-asan
+          /tmp/ee-rsa-asan
+      - name: RSA-2048 scalar multiply ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+            -DEE_MMI_BN_SCALAR_MUL -Iinclude -I. \
+            crypto/bn/bn-ee-mmi.c crypto/rsa/rsa-ee-mmi.c \
+            test/ee_mmi/rsa_test.c -o /tmp/ee-rsa-scalar-asan
+          /tmp/ee-rsa-scalar-asan
+      - name: AES four-block host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -Iinclude -I. \
+            crypto/aes/aes-ee-mmi.c test/ee_mmi/aes_test.c \
+            -o /tmp/ee-aes-asan
+          /tmp/ee-aes-asan
+      - name: AES scalar round ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -DEE_MMI_AES_SCALAR_ROUND \
+            -Iinclude -I. \
+            crypto/aes/aes-ee-mmi.c test/ee_mmi/aes_test.c \
+            -o /tmp/ee-aes-scalar-asan
+          /tmp/ee-aes-scalar-asan
+      - name: GHASH four-lane host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -Iinclude -I. \
+            crypto/modes/ghash-ee-mmi.c test/ee_mmi/ghash_test.c \
+            -o /tmp/ee-ghash-asan
+          /tmp/ee-ghash-asan
+      - name: GHASH scalar GF128 ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -DEE_MMI_GHASH_SCALAR_MULTIPLY \
+            -Iinclude -I. \
+            crypto/modes/ghash-ee-mmi.c test/ee_mmi/ghash_test.c \
+            -o /tmp/ee-ghash-scalar-asan
+          /tmp/ee-ghash-scalar-asan
+      - name: ECDSA P-256 Montgomery host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_BN_SCALAR_MUL -Iinclude -I. \
+            crypto/ec/ee-ecdsa-p256.c crypto/bn/bn-ee-mmi.c \
+            test/ee_mmi/ecdsa_p256_test.c -lcrypto \
+            -o /tmp/ee-ecdsa-p256-mont-asan
+          /tmp/ee-ecdsa-p256-mont-asan
+      - name: ECDSA P-256 scalar host ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_ECDSA_SCALAR -Iinclude -I. \
+            crypto/ec/ee-ecdsa-p256.c test/ee_mmi/ecdsa_p256_test.c \
+            -lcrypto -o /tmp/ee-ecdsa-p256-scalar-asan
+          /tmp/ee-ecdsa-p256-scalar-asan
+      - name: BN Montgomery CIOS ASan/UBSan (no EE instruction execution)
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_BN_STANDALONE -DEE_MMI_BN_HOST_TEST \
+            -Iinclude -I. \
+            crypto/bn/bn-ee-mmi.c test/ee_mmi/bn_mont_test.c \
+            -o /tmp/ee-bn-mont-asan
+          /tmp/ee-bn-mont-asan
+      - name: Poly1305 batch ASan/UBSan and RFC verification
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -Iinclude -I. \
+            crypto/poly1305/poly1305-ee-mmi.c test/ee_mmi/poly1305_test.c \
+            -o /tmp/ee-mmi-poly1305-asan
+          /tmp/ee-mmi-poly1305-asan
+      - name: Fused PMADDUW host-mode ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -DEE_MMI_POLY1305_FUSED_MADD \
+            -Iinclude -I. \
+            crypto/poly1305/poly1305-ee-mmi.c test/ee_mmi/poly1305_test.c \
+            -o /tmp/ee-poly1305-fused-asan
+          /tmp/ee-poly1305-fused-asan
+      - name: Poly1305 scalar multiplication comparison under ASan/UBSan
+        run: |
+          gcc -std=c99 -O1 -g -Wall -Wextra -Werror \
+            -fsanitize=address,undefined -fno-omit-frame-pointer \
+            -DEE_MMI_HOST_TEST -DEE_MMI_POLY1305_SCALAR_MULTIPLY \
+            -Iinclude -I. \
+            crypto/poly1305/poly1305-ee-mmi.c test/ee_mmi/poly1305_test.c \
+            -o /tmp/ee-poly1305-scalar-multiply-asan
+          /tmp/ee-poly1305-scalar-multiply-asan
+

@@ -96,6 +96,25 @@ ENDIF
 SOURCE[../../libcrypto]=$COMMON ec_ameth.c \
                         ec_err.c eck_prn.c \
                         ec_deprecated.c ec_print.c
+# Experimental independent 4-stream RFC 7748 X25519 engine.
+# Do not set X25519_ASM: the original EVP X25519 selection stays intact.
+IF[{- !$disabled{asm} && !$disabled{'ecx'} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=x25519-ee-mmi.c x25519-ee-mmi.S
+ENDIF
+# Independent P-256 ECDH/public point multiplication with
+# field arithmetic using the EE BN 8-word Montgomery kernel.
+# No EC_METHOD / ECDH / TLS or EVP dispatch is changed.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=p256-ee-mmi.c
+ENDIF
+
+# ECDSA-P256 signature verification prototype: uses EE BN Montgomery
+# for two modulo-order scalar products, standard OpenSSL EC_POINT_mul.
+# Does NOT install an EC_METHOD, ECDSA hook or EVP provider override.
+# Includes only the libcrypto-only EE BN backend, never FIPS.
+IF[{- !$disabled{asm} && $target{asm_arch} eq "ee_mmi" -}]
+  SOURCE[../../libcrypto]=ee-ecdsa-p256.c
+ENDIF
 IF[{- !$disabled{'ecx'} -}]
   SOURCE[../../libcrypto]=ecx_meth.c
 ENDIF

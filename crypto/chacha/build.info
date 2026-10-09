@@ -12,6 +12,10 @@ IF[{- !$disabled{asm} -}]
   $CHACHAASM_armv4=chacha-armv4.S
   $CHACHAASM_aarch64=chacha-armv8.S chacha-armv8-sve.S
 
+  # PlayStation 2 EE/R5900 MMI. Include the scalar tail implementation.
+  $CHACHAASM_ee_mmi=chacha_enc.c chacha-ee-mmi.c chacha-ee-mmi.S
+  $CHACHADEF_ee_mmi=INCLUDE_C_CHACHA20
+
   $CHACHAASM_loongarch64=chacha-loongarch64.S
 
   $CHACHAASM_ppc32=chacha_ppc.c chacha-ppc.s
