@@ -39,12 +39,13 @@ or GHASH loops in a real cache/call environment. Measure hardware.
 | GHASH | ghash-ee-mmi.S | G2: ghash-ee-mmi-unroll4.S | G1 with four bit rounds per branch, reducing 128 -> 32 loop branches per 128-bit multiply; no carry-less hardware multiply |
 | BN Montgomery | bn-ee-mmi.S | existing scalar B | PMULTUW products and scalar carry/REDC; inner-loop function calls and HI/LO dependencies dominate, so safe scheduling alone is unlikely to help much |
 | X25519 | x25519-ee-mmi.S | existing scalar B | Ten dependent PMADDUW products per limb; operand LQs and PEXTs are already interleaved before each multiply (four intervening instructions), limiting simple reordering gains |
-| RSA | rsa-ee-mmi.c | existing scalar B | Public exponentiation calls BN Montgomery, so optimize the BN inner loop rather than cosmetic RSA scheduling |
-| P-256 ECDH | p256-ee-mmi.c | existing scalar B | Field operations call BN Montgomery, whose dependence chain and representation dominate |
+| RSA | rsa-ee-mmi.c | reusable R²/n0 public-key contexts | A/B now time repeated RSA-65537 exponentiation with keys precomputed outside measurement; legacy uncached API kept for compatibility and correctness tests |
+| P-256 ECDH | p256-ee-mmi.c | 4-bit public exponent inversion windows | The fixed p−2 exponent now uses a 16-entry table of Montgomery powers, reducing field products; generic Montgomery inner loop remains |
 
 All candidate code is new and **unverified on real EE**. Instruction
 reordering and loop unrolling can make things **slower**, especially in
-the 16KB EE instruction cache. The experimental AES S-box, GHASH bit
+the 16KB EE instruction cache. The AES S-box now uses a fixed inversion addition-chain with
+4 general GF multiplications and 7 linear bitwise squares; GHASH bit
 serial algorithm, and RSA/P-256 higher-level work are still scalar.
 
 ## Build and compare
