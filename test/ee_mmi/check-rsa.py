@@ -94,6 +94,13 @@ assert 'asm_arch} eq "ee_mmi"' in build
 assert "rsa-ee-mmi.c" in build
 assert "OSSL_EE_RSA_MAX_BYTES 512" in header
 assert "pow(" not in source
+assert "rsa_double_mod(key->r2, key->mod, key->num, diff)" in source
+assert "ossl_ee_rsa_public65537_prepared4(" in source
+assert "ossl_ee_rsa_public_key_init(" in source
+assert "ossl_ee_rsa_public_key_clear(" in header
+assert "prepared_key_test()" in test
+assert "rsa_public_key" in header
+assert "ossl_ee_bn_mont32(base, a, key->r2," in source
 
 print("PASS: four distinct RSA-2048 SHA256 PKCS#1 v1.5 signatures")
 print("PASS: 96 RSA Montgomery R2+n0 preparations, 1024-4096 bit")
