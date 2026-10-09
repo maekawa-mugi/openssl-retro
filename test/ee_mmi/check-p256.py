@@ -97,7 +97,34 @@ assert parse_words("CURVE_B") == B
 assert parse_words("P_MINUS_2") == p-2
 assert "ossl_ee_bn_mont32(r->v,a->v,b->v,P,1U,8)" in code
 assert "pt_cswap(&r0,&r1,swap);" in code
-assert "for (bit=255;bit>=0;--bit)" in code
+assert "for (nib=63;nib>=0;--nib)" in code
+assert "for (j=2;j<16;++j)" in code
+assert "powers[digit]" in code
+assert "ee_wipe(powers,sizeof(powers))" in code
+
+# Independently re-evaluate the public fixed-window field inversion
+# algorithm against Python's modular power. 4-bit digits are derived
+# from the actual P_MINUS_2 public exponent, never a secret input.
+inv_exponent = p - 2
+def window_inv(base):
+    powers = [1]
+    for _ in range(15):
+        powers.append((powers[-1] * base) % p)
+    acc = 1
+    for nib in range(63, -1, -1):
+        digit = (inv_exponent >> (4 * nib)) & 15
+        for _ in range(4):
+            acc = acc * acc % p
+        if digit:
+            acc = acc * powers[digit] % p
+    return acc
+
+for sample in [0, 1, 2, p - 1, p // 2]:
+    assert window_inv(sample) == pow(sample, p-2, p)
+for sample in range(32):
+    base = ((sample + 1) * 0x9e3779b97f4a7c15) % p
+    assert window_inv(base) == pow(base, p-2, p)
+
 assert "uint64_t v=(uint64_t)d[i]-ORDER[i]-borrow" in code
 assert "p256-ee-mmi.c" in build and 'asm_arch} eq "ee_mmi"' in build
 assert "ossl_ee_p256_ecdh" in header
@@ -115,4 +142,5 @@ for i in range(64):
 
 print("PASS: 10 P-256 public keys, 20 directions of ECDH agreement")
 print("PASS: P-256 field/Montgomery constants, 64 random group laws")
+print("PASS: P-256 fixed four-bit inversion matches 37 Python BigInt oracles")
 print("NOTE: BigInt arithmetic only; no R5900 execution or timing proof")
