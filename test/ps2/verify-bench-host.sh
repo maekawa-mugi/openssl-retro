@@ -44,6 +44,7 @@ bash -n test/ps2/build-variants.sh
     -I"$tmp" -DPS2_AB test/ps2/main.c
 python3 test/ps2/check-bench.py
 python3 test/ps2/check-schedules.py
+python3 test/ee_mmi/check-aes-tower.py
 python3 test/ee_mmi/check-bn-row.py
 python3 test/ee_mmi/check-ghash-windows.py
 "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
