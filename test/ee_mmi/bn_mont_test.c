@@ -36,6 +36,23 @@ void ossl_ee_bn_mul2(uint64_t out[2], const uint32_t x[4],
 }
 #endif
 
+#ifdef EE_MMI_BN_ROW_HOST_TEST
+/* Exact C oracle for the external whole-row assembly ABI.
+ * Real EE builds link bn-ee-row-mmi.S instead of this host model. */
+uint32_t ossl_ee_bn_muladd_row_mmi(uint32_t *t, const uint32_t *a,
+                                    uint32_t multiplier, size_t num)
+{
+    uint64_t carry = 0;
+    size_t j;
+    for (j = 0; j < num; ++j) {
+        uint64_t z = (uint64_t)a[j] * multiplier + t[j] + carry;
+        t[j] = (uint32_t)z;
+        carry = z >> 32;
+    }
+    return (uint32_t)carry;
+}
+#endif
+
 static uint32_t neg_inv32(uint32_t n)
 {
     uint32_t inverse = 1U;
