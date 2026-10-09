@@ -112,6 +112,99 @@ static int rsa_size_ok(size_t bytes)
            bytes == 384 || bytes == 512;
 }
 
+void ossl_ee_rsa_public_key_clear(ossl_ee_rsa_public_key *key)
+{
+    if (key != NULL)
+        rsa_wipe(key, sizeof(*key));
+}
+
+int ossl_ee_rsa_public_key_init(ossl_ee_rsa_public_key *key,
+                                const unsigned char *modulus,
+                                size_t mod_bytes)
+{
+    uint32_t diff[RSA_MAX_WORDS];
+    size_t i;
+    if (key == NULL || modulus == NULL || !rsa_size_ok(mod_bytes))
+        return 0;
+    /* The caller owns the context; clear it on failure or before reuse.
+     * Only public modulus data is held in this structure. */
+    ossl_ee_rsa_public_key_clear(key);
+    key->num = mod_bytes / 4;
+    rsa_be_to_words(key->mod, modulus, mod_bytes);
+    if ((key->mod[0] & 1U) == 0
+        || (key->mod[key->num-1] & 0x80000000U) == 0) {
+        ossl_ee_rsa_public_key_clear(key);
+        return 0;
+    }
+    key->n0 = rsa_neg_inv32(key->mod[0]);
+    key->r2[0] = 1U;
+    for (i = 0; i < 64 * key->num; ++i)
+        rsa_double_mod(key->r2, key->mod, key->num, diff);
+    rsa_wipe(diff, sizeof(diff));
+    return 1;
+}
+
+int ossl_ee_rsa_public65537_prepared4(
+    unsigned char *const out[OSSL_EE_RSA_LANES],
+    const unsigned char *const input[OSSL_EE_RSA_LANES],
+    const ossl_ee_rsa_public_key *const keys[OSSL_EE_RSA_LANES])
+{
+    uint32_t a[RSA_MAX_WORDS], base[RSA_MAX_WORDS];
+    uint32_t power[RSA_MAX_WORDS], temp[RSA_MAX_WORDS];
+    uint32_t one[RSA_MAX_WORDS] = {0};
+    unsigned int j;
+    size_t lane, num;
+    int ok = 0;
+
+    if (out == NULL || input == NULL || keys == NULL)
+        return 0;
+    /* Validate ALL four inputs before writing any output lane. */
+    for (lane = 0; lane < OSSL_EE_RSA_LANES; ++lane) {
+        const ossl_ee_rsa_public_key *key = keys[lane];
+        if (out[lane] == NULL || input[lane] == NULL || key == NULL)
+            goto done;
+        num = key->num;
+        if (num == 0 || num > RSA_MAX_WORDS
+            || !rsa_size_ok(num * 4)
+            || (key->mod[0] & 1U) == 0
+            || (key->mod[num-1] & 0x80000000U) == 0
+            || (uint32_t)(key->mod[0] * key->n0) != UINT32_MAX)
+            goto done;
+        rsa_be_to_words(a, input[lane], num * 4);
+        if (!rsa_less(a, key->mod, num))
+            goto done;
+    }
+    one[0] = 1;
+    for (lane = 0; lane < OSSL_EE_RSA_LANES; ++lane) {
+        const ossl_ee_rsa_public_key *key = keys[lane];
+        num = key->num;
+        rsa_be_to_words(a, input[lane], num * 4);
+        if (!ossl_ee_bn_mont32(base, a, key->r2,
+                               key->mod, key->n0, num))
+            goto done;
+        memcpy(power, base, num * sizeof(uint32_t));
+        for (j = 0; j < 16; ++j) {
+            if (!ossl_ee_bn_mont32(temp, power, power, key->mod,
+                                   key->n0, num))
+                goto done;
+            memcpy(power, temp, num * sizeof(uint32_t));
+        }
+        if (!ossl_ee_bn_mont32(temp, power, base, key->mod, key->n0, num)
+            || !ossl_ee_bn_mont32(power, temp, one, key->mod,
+                                   key->n0, num))
+            goto done;
+        rsa_words_to_be(out[lane], power, num * 4);
+    }
+    ok = 1;
+done:
+    rsa_wipe(a, sizeof(a));
+    rsa_wipe(base, sizeof(base));
+    rsa_wipe(power, sizeof(power));
+    rsa_wipe(temp, sizeof(temp));
+    rsa_wipe(one, sizeof(one));
+    return ok;
+}
+
 static int rsa_public_one(unsigned char *out, const unsigned char *in,
                            const unsigned char *mod_bytes, size_t k)
 {
