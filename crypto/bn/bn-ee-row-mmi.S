@@ -34,7 +34,7 @@ ossl_ee_bn_muladd_row_mmi:
      *
      * $v1 (GPR3) is caller-clobbered and unused by the row body.
      * [0..15] product, [16..31] broadcast multiplier,
-     * [32..47] 2 packed operand words, [48..63] wiped padding. */
+     * [32..47] 2 packed operand words, [48..63] unused padding. */
     daddiu  $sp, $sp, -80
     daddiu  $v1, $sp, 15
     dsrl    $v1, $v1, 4
