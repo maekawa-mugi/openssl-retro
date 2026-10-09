@@ -16,6 +16,7 @@
  */
 #include <stddef.h>
 #include <stdint.h>
+#include "crypto/ee_ghash_window.h"
 
 #ifndef EE_MMI_GHASH_WINDOW_BITS
 # error "Select EE_MMI_GHASH_WINDOW_BITS=4 or 8 for window GHASH"
@@ -90,103 +91,81 @@ static void ee_make_table(ee_window_table table,
             }
 }
 
-static void ossl_ee_ghash_window_mul4_impl(uint32_t out[4][4],
-                                           const uint32_t x[4][4],
-                                           const uint32_t h[4][4],
-                                           int use_spr)
+/* A single H is reused for all GHASH blocks. This precomputation is
+ * public-address, fixed-loop and key-dependent only in data values. */
+void ossl_ee_ghash_window_prepare(ossl_ee_ghash_window_ctx *ctx,
+                                  const uint32_t h[4][4])
 {
     uint32_t basis[8][4][4] __attribute__((aligned(16))) = {{{0}}};
-    ee_window_table high __attribute__((aligned(16)));
-#if EE_MMI_GHASH_WINDOW_BITS == 8
-    ee_window_table low __attribute__((aligned(16)));
-#endif
-    /* Production always uses stack RAM. Only PS2_SPR_BENCH may select
-     * the 16 KiB EE scratchpad at 0x70000000 (exclusive ownership). */
-    uint32_t (*high_table)[4][4] = high;
-#if EE_MMI_GHASH_WINDOW_BITS == 8
-    uint32_t (*low_table)[4][4] = low;
-#endif
-#ifdef PS2_SPR_BENCH
-    if (use_spr) {
-        high_table = (uint32_t (*)[4][4])(uintptr_t)0x70000000u;
-#if EE_MMI_GHASH_WINDOW_BITS == 8
-        low_table = (uint32_t (*)[4][4])(uintptr_t)0x70000400u;
-#endif
-    }
-#else
-    (void)use_spr;
-#endif
-    uint32_t state[4][4] __attribute__((aligned(16))) = {{0}};
-    uint32_t selector[4] __attribute__((aligned(16)));
     unsigned int lane, word, step;
-    int group;
-
     for (word = 0; word < 4; ++word)
         for (lane = 0; lane < 4; ++lane)
             basis[0][word][lane] = h[word][lane];
     for (step = 1; step < EE_MMI_GHASH_WINDOW_BITS; ++step) {
         for (word = 0; word < 4; ++word)
             for (lane = 0; lane < 4; ++lane)
-                basis[step][word][lane] =
-                    basis[step - 1][word][lane];
+                basis[step][word][lane] = basis[step-1][word][lane];
         ee_shift_right1(basis[step]);
     }
-    ee_make_table(high_table, basis, 0);
+    ee_make_table(ctx->high, basis, 0);
 #if EE_MMI_GHASH_WINDOW_BITS == 8
-    ee_make_table(low_table, basis, 4);
-    /* Reverse Horner order: least significant byte first, with
-     * shift-right eight between the accumulated contributions. */
+    ee_make_table(ctx->low, basis, 4);
+#endif
+    ee_wipe_window(basis, sizeof(basis));
+}
+
+void ossl_ee_ghash_window_mul(uint32_t out[4][4],
+                              const uint32_t x[4][4],
+                              const ossl_ee_ghash_window_ctx *ctx)
+{
+    uint32_t state[4][4] __attribute__((aligned(16))) = {{0}};
+    uint32_t selector[4] __attribute__((aligned(16)));
+    unsigned int lane, word;
+    int group;
+#if EE_MMI_GHASH_WINDOW_BITS == 8
     for (group = 15; group >= 0; --group) {
         unsigned int xi = (unsigned int)group >> 2;
         unsigned int shift = (3U - ((unsigned int)group & 3U)) * 8U;
         ee_shift_n(state, 8);
         for (lane = 0; lane < 4; ++lane)
-            selector[lane] = (x[xi][lane] >> (shift + 4U)) & 15U;
-        ossl_ee_ghash_window_xor4(state, high_table, selector);
+            selector[lane] = (x[xi][lane] >> (shift+4U)) & 15U;
+        ossl_ee_ghash_window_xor4(state, ctx->high, selector);
         for (lane = 0; lane < 4; ++lane)
             selector[lane] = (x[xi][lane] >> shift) & 15U;
-        ossl_ee_ghash_window_xor4(state, low_table, selector);
+        ossl_ee_ghash_window_xor4(state, ctx->low, selector);
     }
 #else
-    /* Same GHASH field multiplication in radix 16:
-     * z <- T^4(z) XOR sum_{bit=0..3}(bit* T^bit(H)).
-     * Nibble index depends on data, but all table accesses are
-     * constant-address scans performed by the EE MMI assembly. */
     for (group = 31; group >= 0; --group) {
         unsigned int xi = (unsigned int)group >> 3;
         unsigned int shift = (7U - ((unsigned int)group & 7U)) * 4U;
         ee_shift_n(state, 4);
         for (lane = 0; lane < 4; ++lane)
             selector[lane] = (x[xi][lane] >> shift) & 15U;
-        ossl_ee_ghash_window_xor4(state, high_table, selector);
+        /* All 16 entries are read by each masked lookup; no
+         * secret-dependent branch or memory address. */
+        ossl_ee_ghash_window_xor4(state, ctx->high, selector);
     }
 #endif
     for (word = 0; word < 4; ++word)
         for (lane = 0; lane < 4; ++lane)
             out[word][lane] = state[word][lane];
-    ee_wipe_window(basis, sizeof(basis));
-    ee_wipe_window(high_table, sizeof(high));
-#if EE_MMI_GHASH_WINDOW_BITS == 8
-    ee_wipe_window(low_table, sizeof(low));
-#endif
     ee_wipe_window(state, sizeof(state));
     ee_wipe_window(selector, sizeof(selector));
 }
 
-/* The normal GHASH update always calls this stack-RAM implementation. */
+void ossl_ee_ghash_window_clear(ossl_ee_ghash_window_ctx *ctx)
+{
+    ee_wipe_window(ctx, sizeof(*ctx));
+}
+
+/* Single multiplication remains ABI compatible for standalone callers.
+ * Streaming GHASH/GCM use prepare once and reuse the context instead. */
 void ossl_ee_ghash_mul4(uint32_t out[4][4],
                          const uint32_t x[4][4],
                          const uint32_t h[4][4])
 {
-    ossl_ee_ghash_window_mul4_impl(out, x, h, 0);
+    ossl_ee_ghash_window_ctx ctx __attribute__((aligned(16)));
+    ossl_ee_ghash_window_prepare(&ctx, h);
+    ossl_ee_ghash_window_mul(out, x, &ctx);
+    ossl_ee_ghash_window_clear(&ctx);
 }
-
-#ifdef PS2_SPR_BENCH
-/* Bench-only entry point: no runtime cryptographic dispatch changes. */
-void ossl_ee_ghash_mul4_spr_bench(uint32_t out[4][4],
-                                  const uint32_t x[4][4],
-                                  const uint32_t h[4][4])
-{
-    ossl_ee_ghash_window_mul4_impl(out, x, h, 1);
-}
-#endif
