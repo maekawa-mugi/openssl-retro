@@ -3,6 +3,8 @@
 set -euo pipefail
 source_dir=$(cd "$(dirname "$0")/../.." && pwd)
 output_dir=${1:-"$source_dir/build-ps2-mmi"}
+build_jobs=${BUILD_JOBS:-${JOBS:-$(nproc)}}
+(( build_jobs >= 1 )) || { echo "BUILD_JOBS must be >= 1" >&2; exit 2; }
 mkdir -p "$output_dir"
 output_dir=$(cd "$output_dir" && pwd)
 cd "$source_dir"
@@ -86,11 +88,24 @@ objects=()
 if [[ ${PS2_AB:-0} == 1 ]]; then
     flags+=(-DPS2_AB)
 fi
+compile_pids=()
 compile() {
     local src=$1 obj="$output_dir/${object_tag:-}${1//\//_}.o"
     shift
-    "$cc" "${flags[@]}" "$@" -c "$src" -o "$obj"
+    # Each object owns its output path. Namespace linking waits for
+    # all of the asynchronous compilers before reading their objects.
+    "$cc" "${flags[@]}" "$@" -c "$src" -o "$obj" &
+    compile_pids+=("$!")
     objects+=("$obj")
+    if (( ${#compile_pids[@]} >= build_jobs )); then
+        wait "${compile_pids[0]}"
+        compile_pids=("${compile_pids[@]:1}")
+    fi
+}
+finish_compiles() {
+    local pid
+    for pid in "${compile_pids[@]}"; do wait "$pid"; done
+    compile_pids=()
 }
 for suite in chacha20 sha256 poly1305 aes ghash bn_mont x25519 rsa p256_ecdh aes_gcm; do
     compile "test/ee_mmi/${suite}_test.c" "-Dmain=ps2_test_$suite"
@@ -123,6 +138,7 @@ if [[ ${PS2_AB:-0} == 1 ]]; then
         compile "$src" "${scalar_flags[@]}"
     done
     compile test/ps2/bench.c "${scalar_flags[@]}"
+    finish_compiles
     "${cc%gcc}ld" -r "${objects[@]}" -o "$output_dir/scalar.o"
     "${cc%gcc}nm" --defined-only --extern-only "$output_dir/scalar.o" |
         awk '{print $3 " b_" $3}' > "$output_dir/scalar-symbols.txt"
@@ -137,6 +153,7 @@ if [[ ${PS2_AB:-0} == 1 ]]; then
     compile crypto/poly1305/poly1305-ee-mmi.S
     compile crypto/poly1305/poly1305-ee-pmadduw.S
     compile test/ps2/bench.c "${fused_flags[@]}" -DPS2_BENCH_POLY_ONLY
+    finish_compiles
     "${cc%gcc}ld" -r "${objects[@]}" -o "$output_dir/fused.o"
     "${cc%gcc}nm" --defined-only --extern-only "$output_dir/fused.o" |
         awk '{print $3 " f_" $3}' > "$output_dir/fused-symbols.txt"
@@ -158,10 +175,11 @@ for src in \
     crypto/rsa/rsa-ee-mmi.c crypto/ec/p256-ee-mmi.c test/ps2/main.c; do
     compile "$src"
 done
+finish_compiles
 "$cc" -march=r5900 -G0 "-B$crt_dir/" \
     "-T$PS2SDK/ee/startup/linkfile" "-L$PS2SDK/ee/lib" \
-    -Wl,-zmax-page-size=128,--gc-sections "-Wl,-Map,$output_dir/openssl_mmi_test.map" \
+    -Wl,-zmax-page-size=128,--gc-sections "-Wl,-Map,$output_dir/openssl_mmi.map" \
     "${objects[@]}" -Wl,--start-group -ldebug -lc -lcdvd -lcglue \
     -lpthread -lpthreadglue -lkernel -Wl,--end-group \
-    -o "$output_dir/openssl_mmi_test.elf"
-printf '\nELF: %s/openssl_mmi_test.elf\n' "$output_dir"
+    -o "$output_dir/openssl_mmi.elf"
+printf '\nELF: %s/openssl_mmi.elf (parallel jobs=%s)\n' "$output_dir" "$build_jobs"
