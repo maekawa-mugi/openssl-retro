@@ -52,6 +52,8 @@ static uint32_t bn_a[BN_LIMBS], bn_b[BN_LIMBS], bn_n[BN_LIMBS];
 static uint32_t bn_out[BN_LIMBS];
 static unsigned char x_scalar[4][32], x_point[4][32], x_out[4][32];
 static unsigned char rsa_mod[4][RSA_BYTES], rsa_in[4][RSA_BYTES];
+static ossl_ee_rsa_public_key rsa_prepared[4];
+static const ossl_ee_rsa_public_key *rsa_prepared_ptr[4];
 static unsigned char rsa_out[4][RSA_BYTES];
 static unsigned char *rsa_out_ptr[4];
 static const unsigned char *rsa_in_ptr[4], *rsa_mod_ptr[4];
@@ -99,6 +101,7 @@ int ps2_bench_prepare(void)
         rsa_in_ptr[lane] = rsa_in[lane];
         rsa_mod_ptr[lane] = rsa_mod[lane];
         rsa_out_ptr[lane] = rsa_out[lane];
+        rsa_prepared_ptr[lane] = &rsa_prepared[lane];
         gcm_in_ptr[lane] = gcm_in[lane];
         gcm_out_ptr[lane] = gcm_out[lane];
         gcm_aad_ptr[lane] = gcm_aad[lane];
@@ -128,6 +131,12 @@ int ps2_bench_prepare(void)
         rsa_mod[lane][RSA_BYTES-1] = (unsigned char)(0xf3U + lane * 2U);
         rsa_in[lane][RSA_BYTES-1] = (unsigned char)(2U + lane);
     }
+    /* Public modulus-dependent R² is computed ONCE before timing.
+     * Both A and B call the matching prepared-key API. */
+    for (lane = 0; lane < 4; ++lane)
+        if (!ossl_ee_rsa_public_key_init(&rsa_prepared[lane],
+                                          rsa_mod[lane], RSA_BYTES))
+            return 0;
     for (i = 0; i < 16; ++i)
         aes_key_bytes[i] = (unsigned char)(7U + i * 13U);
     if (!ossl_ee_aes_set_encrypt_key(&aes_key, aes_key_bytes, 128))
@@ -207,8 +216,8 @@ int ps2_bench_run(unsigned int suite, unsigned int repetitions)
                 return 0;
             break;
         case 7:
-            if (!ossl_ee_rsa_public65537_4(rsa_out_ptr, rsa_in_ptr,
-                                           rsa_mod_ptr, RSA_BYTES))
+            if (!ossl_ee_rsa_public65537_prepared4(
+                    rsa_out_ptr, rsa_in_ptr, rsa_prepared_ptr))
                 return 0;
             break;
         case 8:
