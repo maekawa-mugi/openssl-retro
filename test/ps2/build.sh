@@ -68,8 +68,10 @@ if [[ ${PS2_SCHED_GHASH:-0} == 3 || ${PS2_SCHED_GHASH:-0} == 4 ]]; then
         flags+=(-DEE_MMI_GHASH_WINDOW_BITS=8)
     fi
 fi
+# Use whole-row multiply/add for BN Montgomery, RSA and P-256 by
+# default. Set PS2_SCHED_BN=0 to retain the old two-product oracle.
 bn_extra=()
-if [[ ${PS2_SCHED_BN:-0} == 1 ]]; then
+if [[ ${PS2_SCHED_BN:-1} == 1 ]]; then
     flags+=(-DEE_MMI_BN_ROW_FUSED)
     bn_extra=(crypto/bn/bn-ee-row-mmi.S)
 fi
@@ -83,7 +85,7 @@ flags+=("-DPS2_CONFIG_CHACHA=${PS2_SCHED_CHACHA:-0}"
         "-DPS2_CONFIG_SHA=${PS2_SCHED_SHA:-0}"
         "-DPS2_CONFIG_GHASH=${PS2_SCHED_GHASH:-0}"
         "-DPS2_CONFIG_AES=${PS2_SCHED_AES:-0}"
-        "-DPS2_CONFIG_BN=${PS2_SCHED_BN:-0}")
+        "-DPS2_CONFIG_BN=${PS2_SCHED_BN:-1}")
 objects=()
 if [[ ${PS2_AB:-0} == 1 ]]; then
     flags+=(-DPS2_AB)
