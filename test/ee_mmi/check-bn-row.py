@@ -29,7 +29,15 @@ assert s.index("beqz    $10, .Lee_bn_row_odd") < s.index(
     "lw      $10, 4($a1)")
 # Two consecutive 64-bit additions use exact unsigned products:
 # carry is generated only AFTER both t[j] and prior carry are added.
-assert "sq      $14, 0($sp)" in s
+assert "sq      $14, 0($v1)" in s
+assert "lq      $12, 16($v1)" in s
+assert "lq      $11, 32($v1)" in s
+assert "daddiu  $sp, $sp, -80" in s
+assert "daddiu  $v1, $sp, 15" in s
+assert "dsrl    $v1, $v1, 4" in s
+assert "dsll    $v1, $v1, 4" in s
+assert "daddiu  $sp, $sp, 80" in s
+assert "($sp)" not in s, "all scratch accesses must use aligned $v1"
 assert "daddu   $9, $9, $10" in s
 assert "daddu   $9, $9, $8" in s
 
