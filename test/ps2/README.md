@@ -26,13 +26,20 @@ The Poly1305 fused PMADDUW variant is not selected in this ELF.
 
 In addition to the original A/B/F comparator, use
 `bash test/ps2/build-variants.sh build-ps2-schedules` to build
-**eight** independently selected A kernels: the original reference,
+**eleven** independently selected A kernels: the original reference,
 ChaCha20 interleaved quarter rounds, SHA Ch-first, SHA two-round
 unrolled, GHASH mask-first, GHASH four-bit-unrolled,
-AES round-key-early, and an all-scheduled combination.
+AES round-key-early, a constant-time four-bit and eight-bit
+GHASH window, a fused Montgomery addmul-row (PMULTUW), and
+an all-scheduled combination.
 Every ELF retains the same scalar B and fused Poly1305 F controls,
 correctness gating, output digest checks and median timing.
 All schedule variants default to **off**.
+`PS2_SCHED_GHASH=3` selects the 4-bit MMI masked lookup;
+`PS2_SCHED_GHASH=4` selects the 8-bit split-table lookup;
+`PS2_SCHED_BN=1` selects the fused PMULTUW addmul-row.
+These are experiments, not guaranteed speedups; A/B comparison
+remains tied to the same correctness-first 10-suite harness.
 
 See [SCHEDULING.md](SCHEDULING.md) for the uploaded EE manual's
 nominal 1-cycle ALU/4-cycle MMI-multiply latency context, individual
