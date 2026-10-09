@@ -23,15 +23,15 @@ flags=(-O2 -march=r5900 -G0 -D_EE -std=c99 -Wall -Wextra
 # Each scheduled variant retains the original exported symbol and
 # test suite. Only the A kernel changes; the scalar B and fused F
 # comparison paths are kept bit-identical.
-for setting in PS2_SCHED_CHACHA PS2_SCHED_AES; do
+for setting in PS2_SCHED_CHACHA PS2_SCHED_AES PS2_SCHED_BN; do
     value=${!setting:-0}
     [[ "$value" == 0 || "$value" == 1 ]] || {
         echo "Invalid $setting=$value (expected 0 or 1)" >&2; exit 2;
     }
 done
 case "${PS2_SCHED_GHASH:-0}" in
-    0|1|2) ;;
-    *) echo "PS2_SCHED_GHASH must be 0, 1, or 2" >&2; exit 2 ;;
+    0|1|2|3|4) ;;
+    *) echo "PS2_SCHED_GHASH must be 0..4" >&2; exit 2 ;;
 esac
 case "${PS2_SCHED_SHA:-0}" in
     0|1|2) ;;
@@ -56,6 +56,21 @@ fi
 if [[ ${PS2_SCHED_GHASH:-0} == 2 ]]; then
     ghash_asm=crypto/modes/ghash-ee-mmi-unroll4.S
 fi
+ghash_extra=()
+if [[ ${PS2_SCHED_GHASH:-0} == 3 || ${PS2_SCHED_GHASH:-0} == 4 ]]; then
+    ghash_asm=crypto/modes/ghash-ee-window-mmi.S
+    ghash_extra=(crypto/modes/ghash-ee-window.c)
+    if [[ ${PS2_SCHED_GHASH:-0} == 3 ]]; then
+        flags+=(-DEE_MMI_GHASH_WINDOW_BITS=4)
+    else
+        flags+=(-DEE_MMI_GHASH_WINDOW_BITS=8)
+    fi
+fi
+bn_extra=()
+if [[ ${PS2_SCHED_BN:-0} == 1 ]]; then
+    flags+=(-DEE_MMI_BN_ROW_FUSED)
+    bn_extra=(crypto/bn/bn-ee-row-mmi.S)
+fi
 if [[ ${PS2_SCHED_AES:-0} == 1 ]]; then
     aes_asm=crypto/aes/aes-ee-mmi-keyearly.S
 fi
@@ -65,7 +80,8 @@ echo "EE A kernels: ChaCha=$chacha_asm SHA=$sha_asm GHASH=$ghash_asm AES=$aes_as
 flags+=("-DPS2_CONFIG_CHACHA=${PS2_SCHED_CHACHA:-0}"
         "-DPS2_CONFIG_SHA=${PS2_SCHED_SHA:-0}"
         "-DPS2_CONFIG_GHASH=${PS2_SCHED_GHASH:-0}"
-        "-DPS2_CONFIG_AES=${PS2_SCHED_AES:-0}")
+        "-DPS2_CONFIG_AES=${PS2_SCHED_AES:-0}"
+        "-DPS2_CONFIG_BN=${PS2_SCHED_BN:-0}")
 objects=()
 if [[ ${PS2_AB:-0} == 1 ]]; then
     flags+=(-DPS2_AB)
@@ -87,7 +103,8 @@ if [[ ${PS2_AB:-0} == 1 ]]; then
     object_tag=b_
     objects=()
     # Keep both implementations in one ELF, with a separate symbol namespace.
-    scalar_flags=(-DEE_MMI_POLY1305_SCALAR_ABSORB -DEE_MMI_POLY1305_SCALAR_MULTIPLY
+    scalar_flags=(-UEE_MMI_BN_ROW_FUSED -UEE_MMI_GHASH_WINDOW_BITS
+                  -DEE_MMI_POLY1305_SCALAR_ABSORB -DEE_MMI_POLY1305_SCALAR_MULTIPLY
                   -DEE_MMI_AES_SCALAR_ROUND -DEE_MMI_GHASH_SCALAR_MULTIPLY
                   -DEE_MMI_X25519_SCALAR_MULTIPLY -DEE_MMI_BN_SCALAR_MUL)
     for suite in chacha20 sha256 poly1305 aes ghash bn_mont x25519 rsa p256_ecdh aes_gcm; do
@@ -135,8 +152,8 @@ for src in \
     crypto/poly1305/poly1305-ee-mmi.c crypto/poly1305/poly1305-ee-mmi.S \
     crypto/poly1305/poly1305-ee-pmultuw.S \
     crypto/aes/aes-ee-mmi.c "$aes_asm" \
-    crypto/modes/ghash-ee-mmi.c crypto/modes/aes-gcm-ee-mmi.c "$ghash_asm" \
-    crypto/bn/bn-ee-mmi.c crypto/bn/bn-ee-mmi.S \
+    crypto/modes/ghash-ee-mmi.c crypto/modes/aes-gcm-ee-mmi.c "$ghash_asm" "${ghash_extra[@]}" \
+    crypto/bn/bn-ee-mmi.c crypto/bn/bn-ee-mmi.S "${bn_extra[@]}" \
     crypto/ec/x25519-ee-mmi.c crypto/ec/x25519-ee-mmi.S \
     crypto/rsa/rsa-ee-mmi.c crypto/ec/p256-ee-mmi.c test/ps2/main.c; do
     compile "$src"
