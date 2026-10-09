@@ -72,10 +72,13 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
                           const unsigned char *const in[4],
                           size_t blocks)
 {
-    uint32_t state[4][4] __attribute__((aligned(16)));
+    uint32_t statebuf[4][4] __attribute__((aligned(16)));
+    uint32_t resultbuf[4][4] __attribute__((aligned(16)));
     uint32_t key[4][4] __attribute__((aligned(16)));
     uint32_t x[4][4] __attribute__((aligned(16)));
-    uint32_t result[4][4] __attribute__((aligned(16)));
+    uint32_t (*state)[4] = statebuf;
+    uint32_t (*result)[4] = resultbuf;
+    uint32_t (*swap)[4];
     unsigned int lane, w;
     size_t block;
 
@@ -107,7 +110,11 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
 #else
         ossl_ee_ghash_mul4(result, x, key);
 #endif
-        memcpy(state, result, sizeof(state));
+        /* The MMI result cannot alias the source; exchange aligned
+         * buffers instead of copying 64 bytes on every GHASH block. */
+        swap = state;
+        state = result;
+        result = swap;
     }
     for (w = 0; w < 4; ++w)
         for (lane = 0; lane < 4; ++lane)
@@ -115,7 +122,7 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
 
     wipe(key, sizeof(key));
     wipe(x, sizeof(x));
-    wipe(result, sizeof(result));
-    wipe(state, sizeof(state));
+    wipe(resultbuf, sizeof(resultbuf));
+    wipe(statebuf, sizeof(statebuf));
     return 1;
 }
