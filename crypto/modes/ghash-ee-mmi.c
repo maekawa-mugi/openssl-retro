@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "crypto/ee_mmi.h"
+#include "crypto/ee_ghash_window.h"
 
 static uint32_t load_be32(const unsigned char *p)
 {
@@ -76,6 +77,9 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
     uint32_t resultbuf[4][4] __attribute__((aligned(16)));
     uint32_t key[4][4] __attribute__((aligned(16)));
     uint32_t x[4][4] __attribute__((aligned(16)));
+#if defined(EE_MMI_GHASH_WINDOW_BITS) && !defined(EE_MMI_GHASH_SCALAR_MULTIPLY)
+    ossl_ee_ghash_window_ctx window __attribute__((aligned(16)));
+#endif
     uint32_t (*state)[4] = statebuf;
     uint32_t (*result)[4] = resultbuf;
     uint32_t (*swap)[4];
@@ -100,6 +104,9 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
             state[w][lane] = load_be32(y[lane] + 4*w);
         }
 
+#if defined(EE_MMI_GHASH_WINDOW_BITS) && !defined(EE_MMI_GHASH_SCALAR_MULTIPLY)
+    ossl_ee_ghash_window_prepare(&window, key);
+#endif
     for (block = 0; block < blocks; ++block) {
         for (w = 0; w < 4; ++w)
             for (lane = 0; lane < 4; ++lane)
@@ -107,6 +114,9 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
                        ^ load_be32(in[lane] + block * 16U + 4*w);
 #ifdef EE_MMI_GHASH_SCALAR_MULTIPLY
         ghash_mul_scalar(result, x, key);
+#elif defined(EE_MMI_GHASH_WINDOW_BITS)
+        /* H is fixed for this update: no 1KiB/2KiB rebuild per block. */
+        ossl_ee_ghash_window_mul(result, x, &window);
 #else
         ossl_ee_ghash_mul4(result, x, key);
 #endif
@@ -120,6 +130,9 @@ int ossl_ee_ghash_update4(unsigned char y[4][16],
         for (lane = 0; lane < 4; ++lane)
             store_be32(y[lane] + 4*w, state[w][lane]);
 
+#if defined(EE_MMI_GHASH_WINDOW_BITS) && !defined(EE_MMI_GHASH_SCALAR_MULTIPLY)
+    ossl_ee_ghash_window_clear(&window);
+#endif
     wipe(key, sizeof(key));
     wipe(x, sizeof(x));
     wipe(resultbuf, sizeof(resultbuf));
