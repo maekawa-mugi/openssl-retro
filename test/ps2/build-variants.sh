@@ -41,6 +41,9 @@ PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
 PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
     PS2_SCHED_GHASH=0 PS2_SCHED_AES=1 \
     bash test/ps2/build.sh "$prefix/aes_key_early"
+PS2_AB=1 PS2_SCHED_CHACHA=0 PS2_SCHED_SHA=0 \
+    PS2_SCHED_GHASH=0 PS2_SCHED_AES=2 \
+    bash test/ps2/build.sh "$prefix/aes_tower"
 PS2_AB=1 PS2_SCHED_CHACHA=1 PS2_SCHED_SHA=1 \
     PS2_SCHED_GHASH=1 PS2_SCHED_AES=1 \
     bash test/ps2/build.sh "$prefix/all_scheduled"
