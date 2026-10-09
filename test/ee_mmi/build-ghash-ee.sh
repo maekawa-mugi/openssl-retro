@@ -16,9 +16,23 @@ else
   ASM_SRC="crypto/modes/ghash-ee-mmi.S"
   printf 'GHASH R5900 PAND/PXOR/PSRLW/PSLLW SIMD build\n'
 fi
+WINDOW_SRC=""
+if [ "${EE_GHASH_WINDOW:-0}" != 0 ]; then
+  if [ "${EE_GHASH_SCALAR:-0}" = 1 ]; then
+    echo "EE_GHASH_WINDOW and EE_GHASH_SCALAR cannot be combined" >&2; exit 2
+  fi
+  case "${EE_GHASH_WINDOW}" in
+    4|8) ;;
+    *) echo "EE_GHASH_WINDOW must be 4 or 8" >&2; exit 2 ;;
+  esac
+  CFLAGS="$CFLAGS -DEE_MMI_GHASH_WINDOW_BITS=${EE_GHASH_WINDOW}"
+  ASM_SRC=crypto/modes/ghash-ee-window-mmi.S
+  WINDOW_SRC=crypto/modes/ghash-ee-window.c
+  OUT="${OUT:-ee_ghash_window_${EE_GHASH_WINDOW}_test.elf}"
+fi
 # Intentional word splitting for caller CFLAGS/LDFLAGS.
 # shellcheck disable=SC2086
 "$CC" $CFLAGS -std=c99 -Iinclude -I. \
-  crypto/modes/ghash-ee-mmi.c $ASM_SRC \
+  crypto/modes/ghash-ee-mmi.c $WINDOW_SRC $ASM_SRC \
   test/ee_mmi/ghash_test.c $LDFLAGS -o "$OUT"
 printf 'Built GHASH PS2 ELF: %s\n' "$OUT"
