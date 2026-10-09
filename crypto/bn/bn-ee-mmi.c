@@ -53,7 +53,7 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
     uint32_t y[4] __attribute__((aligned(16))) = {0};
     uint64_t product[2] __attribute__((aligned(16))) = {0};
     uint32_t low_borrow, choose_t, mask;
-    size_t i, j, k;
+    size_t i, j;
 
     if (out == NULL || a == NULL || b == NULL || mod == NULL
         || num == 0 || num > OSSL_EE_BN_MONT_MAX_WORDS
@@ -71,9 +71,14 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
             x[0] = a[j];
             x[1] = j + 1 < num ? a[j + 1] : 0;
             ee_mont_multiply2(product, x, y);
-            for (k = 0; k < 2 && j + k < num; ++k) {
-                z = (uint64_t)t[j + k] + product[k] + carry;
-                t[j + k] = (uint32_t)z;
+            /* Two PMULTUW products already share a 128-bit result:
+             * avoid an inner dynamic k-loop between the carry steps. */
+            z = (uint64_t)t[j] + product[0] + carry;
+            t[j] = (uint32_t)z;
+            carry = z >> 32;
+            if (j + 1 < num) {
+                z = (uint64_t)t[j + 1] + product[1] + carry;
+                t[j + 1] = (uint32_t)z;
                 carry = z >> 32;
             }
         }
@@ -90,10 +95,13 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
             x[0] = mod[j];
             x[1] = j + 1 < num ? mod[j + 1] : 0;
             ee_mont_multiply2(product, x, y);
-            for (k = 0; k < 2 && j + k < num; ++k) {
-                z = (uint64_t)t[j + k] + product[k] + carry;
-                if (j + k != 0)
-                    t[j + k - 1] = (uint32_t)z;
+            z = (uint64_t)t[j] + product[0] + carry;
+            if (j != 0)
+                t[j - 1] = (uint32_t)z;
+            carry = z >> 32;
+            if (j + 1 < num) {
+                z = (uint64_t)t[j + 1] + product[1] + carry;
+                t[j] = (uint32_t)z;
                 carry = z >> 32;
             }
         }
