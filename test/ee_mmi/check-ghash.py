@@ -47,6 +47,11 @@ assert 'asm_arch} eq "ee_mmi"' in build
 assert "$MODESASM_ee_mmi" not in build
 assert "ossl_ee_ghash_mul4(result, x, key);" in c
 assert "EE_MMI_GHASH_SCALAR_MULTIPLY" in c
+assert "swap = state;" in c
+assert "state = result;" in c
+assert "result = swap;" in c
+assert "memcpy(state, result," not in c
+assert "wipe(resultbuf, sizeof(resultbuf));" in c
 
 R = 0xe1000000000000000000000000000000
 MASK = (1 << 128) - 1
