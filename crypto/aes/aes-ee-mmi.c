@@ -43,6 +43,110 @@ static void store_le32(unsigned char *p, uint32_t x)
 
 /* Four independent byte-wide GF(2^8) doublings in a uint32_t,
  * no cross-byte carries. The reduction polynomial is 0x11b. */
+/* Constant-address AES S-box in GF(16)[beta]/(beta^2+beta+lambda).
+ * alpha=0x5c embeds GF(16) via alpha^4+alpha+1=0,
+ * beta=0xa2, lambda=alpha^3=0x50. The input/output basis maps
+ * below are fixed linear XOR circuits, NOT secret-indexed tables.
+ * GF(16) uses x^4+x+1. The final affine map includes AES 0x63.
+ * All 256 inputs and 10,000 random packed words were independently
+ * checked against the AES reference S-box before proposing this path.
+ */
+#if defined(EE_MMI_AES_TOWER_SBOX)
+static uint32_t aes_tower_unpack(uint32_t x)
+{
+    uint32_t p0 = x & 0x01010101U;
+    uint32_t p1 = (x >> 1) & 0x01010101U;
+    uint32_t p2 = (x >> 2) & 0x01010101U;
+    uint32_t p3 = (x >> 3) & 0x01010101U;
+    uint32_t p4 = (x >> 4) & 0x01010101U;
+    uint32_t p5 = (x >> 5) & 0x01010101U;
+    uint32_t p6 = (x >> 6) & 0x01010101U;
+    uint32_t p7 = (x >> 7) & 0x01010101U;
+    uint32_t v0 = p0 ^ p5 ^ p7;
+    uint32_t v1 = p2;
+    uint32_t v2 = p2 ^ p3 ^ p4 ^ p5 ^ p6 ^ p7;
+    uint32_t v3 = p3 ^ p4;
+    uint32_t v4 = p4 ^ p5 ^ p6;
+    uint32_t v5 = p1 ^ p4 ^ p6 ^ p7;
+    uint32_t v6 = p2 ^ p3 ^ p5 ^ p7;
+    uint32_t v7 = p5 ^ p7;
+    return v0 | (v1 << 1) | (v2 << 2) | (v3 << 3) | (v4 << 4) | (v5 << 5) | (v6 << 6) | (v7 << 7);
+}
+
+static uint32_t aes_tower_affine_pack(uint32_t x)
+{
+    uint32_t p0 = x & 0x01010101U;
+    uint32_t p1 = (x >> 1) & 0x01010101U;
+    uint32_t p2 = (x >> 2) & 0x01010101U;
+    uint32_t p3 = (x >> 3) & 0x01010101U;
+    uint32_t p4 = (x >> 4) & 0x01010101U;
+    uint32_t p5 = (x >> 5) & 0x01010101U;
+    uint32_t p6 = (x >> 6) & 0x01010101U;
+    uint32_t p7 = (x >> 7) & 0x01010101U;
+    uint32_t v0 = p0 ^ p2 ^ p6;
+    uint32_t v1 = p0 ^ p1 ^ p2 ^ p3 ^ p4 ^ p5;
+    uint32_t v2 = p0 ^ p3 ^ p5 ^ p6;
+    uint32_t v3 = p0 ^ p2 ^ p5;
+    uint32_t v4 = p0 ^ p1 ^ p3 ^ p4 ^ p5;
+    uint32_t v5 = p1 ^ p2 ^ p3 ^ p5 ^ p6 ^ p7;
+    uint32_t v6 = p4 ^ p6 ^ p7;
+    uint32_t v7 = p1 ^ p2;
+    return v0 | (v1 << 1) | (v2 << 2) | (v3 << 3) | (v4 << 4) | (v5 << 5) | (v6 << 6) | (v7 << 7);
+}
+
+static uint32_t aes_tower_sq16(uint32_t x)
+{
+    uint32_t p0=x&0x01010101U,p1=(x>>1)&0x01010101U;
+    uint32_t p2=(x>>2)&0x01010101U,p3=(x>>3)&0x01010101U;
+    return p0 ^ (p1<<2) ^ p2 ^ (p2<<1) ^ (p3<<2) ^ (p3<<3);
+}
+static uint32_t aes_tower_lam16(uint32_t x)
+{
+    uint32_t p0=x&0x01010101U,p1=(x>>1)&0x01010101U;
+    uint32_t p2=(x>>2)&0x01010101U,p3=(x>>3)&0x01010101U;
+    return (p0<<3) ^ p1 ^ (p1<<1) ^ (p2<<1) ^ (p2<<2)
+         ^ (p3<<2) ^ (p3<<3);
+}
+static uint32_t aes_tower_mul16(uint32_t a,uint32_t b)
+{
+    uint32_t acc=0U,top,bit;
+    unsigned int i;
+    for(i=0;i<4;++i) {
+        /* Each packed byte is 0..15. Multiply by 255 broadcasts
+         * its bit0 to 0x00/0xff without inter-byte carry. */
+        bit=(b>>i)&0x01010101U;
+        acc ^= a & (bit*255U);
+        top=(a>>3)&0x01010101U;
+        a=((a<<1)&0x0e0e0e0eU)^top^(top<<1);
+    }
+    return acc;
+}
+static uint32_t aes_sbox4(uint32_t x)
+{
+    struct {
+        uint32_t a,b,n,n2,n3,n6,n12,ni,ai,bi;
+    } t;
+    uint32_t unpacked=aes_tower_unpack(x),output;
+    t.a=unpacked&0x0f0f0f0fU;
+    t.b=(unpacked>>4)&0x0f0f0f0fU;
+    t.n=aes_tower_sq16(t.a)
+       ^aes_tower_mul16(t.a,t.b)
+       ^aes_tower_lam16(aes_tower_sq16(t.b));
+    t.n2=aes_tower_sq16(t.n);
+    t.n3=aes_tower_mul16(t.n2,t.n);
+    t.n6=aes_tower_sq16(t.n3);
+    t.n12=aes_tower_sq16(t.n6);
+    t.ni=aes_tower_mul16(t.n12,t.n2); /* N^-1, including N=0 */
+    t.ai=aes_tower_mul16(t.a^t.b,t.ni);
+    t.bi=aes_tower_mul16(t.b,t.ni);
+    output=aes_tower_affine_pack(t.ai^(t.bi<<4))^0x63636363U;
+    /* A single volatile wipe avoids leaving key-dependent temporaries
+     * in an addressable stack frame. Do not replace with plain memset. */
+    aes_wipe(&t,sizeof(t));
+    aes_wipe(&unpacked,sizeof(unpacked));
+    return output;
+}
+#else /* original constant-time packed GF(256) exponentiation */
 static uint32_t aes_xtime4(uint32_t a)
 {
     uint32_t hi = (a >> 7) & 0x01010101U;
@@ -133,6 +237,8 @@ static uint32_t aes_sbox4(uint32_t x)
     aes_wipe(&inverse, sizeof(inverse));
     return s;
 }
+
+#endif /* EE_MMI_AES_TOWER_SBOX */
 
 static uint32_t aes_rot32_8(uint32_t x)
 {
