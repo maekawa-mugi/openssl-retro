@@ -16,6 +16,36 @@
 #define OSSL_EE_RSA_MAX_BYTES 512
 
 /*
+ * Reusable public-key Montgomery precomputation. Four independent
+ * moduli each get one object, reused for subsequent public operations.
+ * This avoids recalculating R^2 mod n with 64*num modular doublings
+ * on every call (2048 iterations per RSA-2048 public operation).
+ * NOT suitable for private keys or secret exponents.
+ */
+typedef struct {
+    uint32_t mod[OSSL_EE_RSA_MAX_BYTES / 4];
+    uint32_t r2[OSSL_EE_RSA_MAX_BYTES / 4];
+    uint32_t n0;
+    size_t num;
+} ossl_ee_rsa_public_key;
+
+int ossl_ee_rsa_public_key_init(ossl_ee_rsa_public_key *key,
+                                 const unsigned char *modulus,
+                                 size_t mod_bytes);
+void ossl_ee_rsa_public_key_clear(ossl_ee_rsa_public_key *key);
+
+/* Exponentiate four inputs against independently prepared keys.
+ * Context lifetime, ownership, and thread safety belong to caller:
+ * initialization is not concurrent with calls; read-only concurrent
+ * reuse after initialization is supported. Returns 0 on errors.
+ * Exact in-place out[lane]==input[lane] is supported.
+ */
+int ossl_ee_rsa_public65537_prepared4(
+    unsigned char *const out[OSSL_EE_RSA_LANES],
+    const unsigned char *const input[OSSL_EE_RSA_LANES],
+    const ossl_ee_rsa_public_key *const keys[OSSL_EE_RSA_LANES]);
+
+/*
  * Four independent RSA public exponentiations:
  * out[lane] = input[lane]^65537 mod modulus[lane]
  *
