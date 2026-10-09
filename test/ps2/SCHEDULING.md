@@ -1,7 +1,7 @@
 # PS2 EE MMI dependency and scheduling experiments
 
 These are **opt-in alternatives** for the PS2 A/B/F standalone harness
-on the codex/ps2-ee-mmi-test branch. All original A kernels remain
+on the ps2-ee-mmi branch. All original A kernels remain
 unchanged. The scalar B and Poly1305 fused F comparison paths are
 unchanged between builds. New kernels are not enabled by default in
 libcrypto, EVP, TLS, or the FIPS provider.
@@ -37,7 +37,9 @@ or GHASH loops in a real cache/call environment. Measure hardware.
 | AES-GCM | aes-gcm-ee-mmi.c + AES/GHASH MMI | Integrated four-lane CTR/GHASH | Reuses one key schedule and GHASH H, passes ciphertext straight into packed GHASH, handles padded AAD and length blocks; A/B tests 256-byte authenticated messages |
 | GHASH | ghash-ee-mmi.S | G1: ghash-ee-mmi-sched.S | Calculate independent low-bit reduction mask ahead of Z update and advance X bit early |
 | GHASH | ghash-ee-mmi.S | G2: ghash-ee-mmi-unroll4.S | G1 with four bit rounds per branch, reducing 128 -> 32 loop branches per 128-bit multiply; no carry-less hardware multiply |
-| BN Montgomery | bn-ee-mmi.S | existing scalar B | PMULTUW products and scalar carry/REDC; inner-loop function calls and HI/LO dependencies dominate, so safe scheduling alone is unlikely to help much |
+| GHASH | ghash-ee-mmi.S | G3: ghash-ee-window.c + ghash-ee-window-mmi.S | Four-bit fixed-scan nibble tables using PCEQW/PAND/PXOR across four streams, no data-dependent addresses |
+| GHASH | ghash-ee-mmi.S | G4: same windows with width=8 | 8-bit reverse-Horner with two constant-address 16-entry scans per byte |
+| BN Montgomery | bn-ee-mmi.S | B1: bn-ee-row-mmi.S | Single PMULTUW assembly call per addmul row with inline carry, rather than one call per product pair. REDC q and limb shift stay in C. |
 | X25519 | x25519-ee-mmi.S | existing scalar B | Ten dependent PMADDUW products per limb; operand LQs and PEXTs are already interleaved before each multiply (four intervening instructions), limiting simple reordering gains |
 | RSA | rsa-ee-mmi.c | reusable R²/n0 public-key contexts | A/B now time repeated RSA-65537 exponentiation with keys precomputed outside measurement; legacy uncached API kept for compatibility and correctness tests |
 | P-256 ECDH | p256-ee-mmi.c | 4-bit public exponent inversion windows | The fixed p−2 exponent now uses a 16-entry table of Montgomery powers, reducing field products; generic Montgomery inner loop remains |
@@ -50,7 +52,7 @@ serial algorithm, and RSA/P-256 higher-level work are still scalar.
 
 ## Build and compare
 
-Build all **eight** A/B/F ELF configurations with the same flags, SDK,
+Build all **eleven** A/B/F ELF configurations with the same flags, SDK,
 and source revision:
 
 ~~~sh
@@ -70,9 +72,13 @@ Output is one \`openssl_mmi_test.elf\` inside each folder:
 * \`aes_key_early\` (PS2_SCHED_AES=1)
 * \`all_scheduled\` (C+S1+G1+K)
 
-The result screen displays C/S/G/K numeric IDs (ChaCha/SHA/GHASH/AES)
+* ghash_window4 (PS2_SCHED_GHASH=3)
+* ghash_window8 (PS2_SCHED_GHASH=4)
+* bn_fused_row (PS2_SCHED_BN=1)
+
+The result screen displays C/S/G/K/BN numeric IDs (ChaCha/SHA/GHASH/AES)
 and logs the same IDs as "PS2 SCHEDULE". C=0/1,
-S=0/1/2, G=0/1/2, K=0/1. They change only the A code path.
+S=0/1/2, G=0/1/2/3/4, K=0/1, BN=0/1. They change only the A code path.
 B remains the scalar reference and F remains fused Poly1305.
 Keep the IDs in every screenshot and measurement log.
 
@@ -92,6 +98,48 @@ reference ELF; the ratio removes some run-to-run clock/noise effects.
 For genuine optimization claims, repeat each run, alternate ELF
 execution order, and compare median timings on the *same hardware*.
 One-off PCSX2 emulator timing is not a hardware performance guarantee.
+
+## BN row and GHASH 4/8-bit window experiments
+
+B1 (PS2_SCHED_BN=1) uses a single R5900 PMULTUW assembly
+function per FULL addmul row, incorporating carry propagation and
+operand pairing; the outer CIOS q calculation and 32-bit REDC
+word shift remain in C. This reduces assembly call count but
+is **not** an all-assembly Montgomery function, nor a guaranteed
+speedup. Reference BIGNUM A and scalar B remain available.
+
+G3 (PS2_SCHED_GHASH=3) implements a 4-bit window; G4
+(PS2_SCHED_GHASH=4) implements 8-bit windows as two 4-bit
+tables. An R5900 MMI PCEQW/PAND/PXOR kernel scans ALL 16
+table entries at fixed addresses; selector values NEVER choose
+a cache-visible table address. Table precomputation runs for
+every multiplication and may make both alternatives slower
+than bit-serial GHASH. Both preserve the same GHASH ABI,
+so AES-GCM selects the same experimental multiplication.
+
+Host model/correctness commands:
+
+~~~sh
+python3 test/ee_mmi/check-bn-row.py
+python3 test/ee_mmi/check-ghash-windows.py
+EE_BN_ROW=1 sh test/ee_mmi/run-bn-mont-host.sh
+EE_GHASH_WINDOW=4 sh test/ee_mmi/run-ghash-host.sh
+EE_GHASH_WINDOW=8 sh test/ee_mmi/run-ghash-host.sh
+~~~
+
+Single-kernel EE test ELF builds:
+
+~~~sh
+EE_BN_ROW=1 sh test/ee_mmi/build-bn-mont-ee.sh
+EE_GHASH_WINDOW=4 sh test/ee_mmi/build-ghash-ee.sh
+EE_GHASH_WINDOW=8 sh test/ee_mmi/build-ghash-ee.sh
+~~~
+
+These are opt-in performance experiments until the PS2SDK
+assembler/ELF and hardware regression tests pass, followed by
+repeated same-input median timings. A/B validity tests run
+before every benchmark, and mismatched output digests abort
+the corresponding measured row.
 
 ## Independent portable checks
 
