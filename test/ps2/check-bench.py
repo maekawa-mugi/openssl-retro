@@ -16,7 +16,7 @@ assert "static double median6(" in runner
 assert "median6(samples[mode])" in runner
 assert "(step + sample) & 1U" in runner
 assert "(step + sample) % 3U" in runner
-assert "if (!validate_all())" in runner
+assert "if (!validate_one(i))" in runner
 assert "b_ps2_bench_run" in runner and "f_ps2_bench_run" in runner
 assert "backends[mode].reset(suite);" in runner
 assert "GetTimerSystemTime() - start" in runner
@@ -24,7 +24,11 @@ assert runner.index("GetTimerSystemTime() - start") < runner.index(
     "digests[mode] = backends[mode].digest(suite)")
 assert "digests[mode] != canonical" in runner
 assert "f_ps2_test_poly1305" in runner
-assert "BENCH FAIL - see stdout" in runner
+assert "ee_print_status(" in runner
+assert "med[1]/med[0]" in runner
+assert "BENCH_RATE," in runner
+assert "EE_GREEN" in runner
+assert "PS2_SPR_BENCH" not in runner and "PS2_SPR_BENCH" not in builder
 
 suite_names = ("ChaCha20", "SHA224/256", "Poly1305", "AES",
                "GHASH", "BN Mont", "X25519", "RSA", "P256 ECDH", "AES-GCM")
@@ -45,6 +49,8 @@ for target in ("test/ps2/bench.c", "poly1305-ee-pmadduw.S",
     assert target in builder, target
 assert "PS2_BENCH_POLY_ONLY" in builder
 assert "EE_MMI_POLY1305_FUSED_MADD" in builder
+assert "PS2_SCHED_BN:-1" in builder
+assert "crypto/poly1305/poly1305-ee-pmadduw.S" in builder
 assert "compile test/ps2/bench.c" in builder
 assert "PS2_AB" in builder
 assert "crypto/modes/aes-gcm-ee-mmi.c" in builder
