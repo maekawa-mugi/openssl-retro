@@ -68,8 +68,16 @@ RSA private-key operations, decrypting, key generation or signing.
 - crypto/rsa/rsa-ee-mmi.c implements the fixed public exponent
   \`e=65537\` with 16 Montgomery squarings, one multiplication, and
   a final conversion out of the Montgomery domain.
-- The Montgomery constant \`R^2 mod n\` is derived by repeated fixed
+- The Montgomery constant `R^2 mod n` is derived by repeated fixed
   32-bit modular doubling (no dependence on OpenSSL BN internals).
+  For repeated operations on the same public key, use
+  `ossl_ee_rsa_public_key_init()` once and
+  `ossl_ee_rsa_public65537_prepared4()` for subsequent exponentiations;
+  this caches the modulus, `n0` and `R²` per key and does not cache
+  across threads or with hidden global state. Call
+  `ossl_ee_rsa_public_key_clear()` at the end. The legacy public and
+  certificate verification APIs remain available, but they still
+  recompute R² on each invocation.
 - Supports 1024/2048/3072/4096-bit odd, full-width RSA moduli, with
   four **independent RSA jobs** at each call, each having its own
   signature and public modulus. Four jobs are executed sequentially:
