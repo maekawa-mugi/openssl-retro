@@ -230,6 +230,90 @@ static int fixtures_test(void)
     return 1;
 }
 
+static int prepared_key_test(void)
+{
+    static ossl_ee_rsa_public_key keys[4];
+    const ossl_ee_rsa_public_key *keyptr[4];
+    unsigned char moduli[4][K], in[4][K], reference[4][K];
+    unsigned char prepared[4][K], sentinel[4][K];
+    unsigned char *out[4];
+    const unsigned char *input[4], *mods[4];
+    size_t lane, i;
+
+    for (lane = 0; lane < 4; ++lane) {
+        unhex(moduli[lane], fixture[lane].mod, K);
+        unhex(in[lane], fixture[lane].sig, K);
+        input[lane] = in[lane];
+        mods[lane] = moduli[lane];
+        out[lane] = reference[lane];
+        if (!ossl_ee_rsa_public_key_init(&keys[lane], moduli[lane], K)) {
+            puts("FAIL: RSA prepared-key initialization");
+            return 0;
+        }
+        keyptr[lane] = &keys[lane];
+    }
+    if (!ossl_ee_rsa_public65537_4(out, input, mods, K)) {
+        puts("FAIL: legacy RSA reference for prepared-key test");
+        return 0;
+    }
+    for (lane = 0; lane < 4; ++lane)
+        out[lane] = prepared[lane];
+    /* Two repeated public operations must work with one initialized
+     * key context and return identical bytes as the legacy function. */
+    for (i = 0; i < 2; ++i) {
+        if (!ossl_ee_rsa_public65537_prepared4(out, input, keyptr)) {
+            puts("FAIL: prepared RSA execution");
+            return 0;
+        }
+        for (lane = 0; lane < 4; ++lane)
+            if (memcmp(prepared[lane], reference[lane], K)) {
+                puts("FAIL: cached R2 differs from legacy exponent");
+                return 0;
+            }
+    }
+
+    /* An invalid input in lane 2 must prevent ANY output changes. */
+    memcpy(in[2], moduli[2], K);
+    memset(sentinel, 0xa5, sizeof(sentinel));
+    for (lane = 0; lane < 4; ++lane)
+        out[lane] = sentinel[lane];
+    if (ossl_ee_rsa_public65537_prepared4(out, input, keyptr)) {
+        puts("FAIL: prepared RSA accepted representative >= modulus");
+        return 0;
+    }
+    for (lane = 0; lane < 4; ++lane)
+        for (i = 0; i < K; ++i)
+            if (sentinel[lane][i] != 0xa5) {
+                puts("FAIL: prepared RSA touched output on invalid input");
+                return 0;
+            }
+    unhex(in[2], fixture[2].sig, K);
+
+    /* Exact in-place output and input aliases, and no recalculation. */
+    for (lane = 0; lane < 4; ++lane)
+        out[lane] = in[lane];
+    if (!ossl_ee_rsa_public65537_prepared4(out, input, keyptr))
+        return 0;
+    for (lane = 0; lane < 4; ++lane)
+        if (memcmp(in[lane], reference[lane], K))
+            return 0;
+    if (ossl_ee_rsa_public_key_init(&keys[0], moduli[0], 129)
+        || ossl_ee_rsa_public65537_prepared4(NULL, input, keyptr)
+        || ossl_ee_rsa_public65537_prepared4(out, NULL, keyptr)
+        || ossl_ee_rsa_public65537_prepared4(out, input, NULL))
+        return 0;
+    for (lane = 0; lane < 4; ++lane) {
+        const unsigned char *p;
+        ossl_ee_rsa_public_key_clear(&keys[lane]);
+        p = (const unsigned char *)&keys[lane];
+        for (i = 0; i < sizeof(keys[lane]); ++i)
+            if (p[i] != 0)
+                return 0;
+    }
+    puts("PASS: reusable RSA prepared R2, four keys, in-place and invalid input");
+    return 1;
+}
+
 static int sizes_test(int extended)
 {
     static const size_t sizes[] = {128,256,384,512};
@@ -307,7 +391,7 @@ int main(int argc,char **argv)
 {
     int extended = argc>1 && strcmp(argv[1],"--extended")==0;
     int run_bench = argc>1 && strcmp(argv[1],"--bench")==0;
-    if (!fixtures_test() || !sizes_test(extended))
+    if (!fixtures_test() || !prepared_key_test() || !sizes_test(extended))
         return EXIT_FAILURE;
 #ifdef EE_MMI_BN_SCALAR_MUL
     puts("RSA portable Montgomery multiplication baseline");
