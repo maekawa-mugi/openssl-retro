@@ -115,6 +115,13 @@ if [[ ${PS2_AB:-0} == 1 && "$ps2_profile" != legacy ]]; then
     flags+=(-DPS2_EXPERIMENTS)
     if [[ "$ps2_profile" == selected ]]; then flags+=(-DPS2_SELECTED); fi
 fi
+case "${PS2_NEW_IDEAS:-1}" in
+    0|1) ;;
+    *) echo "PS2_NEW_IDEAS must be 0 or 1" >&2; exit 2 ;;
+esac
+if [[ ${PS2_AB:-0} == 1 && "$ps2_profile" == selected && ${PS2_NEW_IDEAS:-1} == 1 ]]; then
+    flags+=(-DPS2_NEW_IDEAS)
+fi
 echo "PS2 benchmark profile=$ps2_profile"
 compile_pids=()
 compile() {

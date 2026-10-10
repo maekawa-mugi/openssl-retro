@@ -19,6 +19,9 @@
 #include <stddef.h>
 #include <string.h>
 #include "crypto/ee_mmi.h"
+#if defined(EE_MMI_X25519_FUSED_REDUCE) && defined(EE_MMI_X25519_SCALAR_MULTIPLY)
+# error "Fused X25519 reduction requires the MMI multiplication backend"
+#endif
 
 #if UINT_MAX != 0xffffffffU
 # error "X25519 EE MMI implementation requires a 32-bit unsigned int"
@@ -114,9 +117,16 @@ static void fe_cswap(ee_fe4 *a, ee_fe4 *b, const uint32_t swap[4])
             b->x[i][lane] ^= t;
         }
 }
+#ifdef EE_MMI_X25519_FUSED_REDUCE
+extern void ossl_ee_x25519_mul_reduce4(uint32_t out[10][4],
+                                       const uint32_t a[10][4],
+                                       const uint32_t scaled[40][4]);
+#endif
 static void fe_mul(ee_fe4 *out, const ee_fe4 *a, const ee_fe4 *b)
 {
+#ifndef EE_MMI_X25519_FUSED_REDUCE
     uint64_t sums[10][4] __attribute__((aligned(16)));
+#endif
     unsigned int i, lane;
 #ifdef EE_MMI_X25519_SCALAR_MULTIPLY
     unsigned int j;
@@ -147,7 +157,11 @@ static void fe_mul(ee_fe4 *out, const ee_fe4 *a, const ee_fe4 *b)
              * non-word-values for the EE PMADDUW operand table. */
             scaled[i+30][lane] = (i & 1U) ? 38U * v : 0U;
         }
+#ifdef EE_MMI_X25519_FUSED_REDUCE
+    ossl_ee_x25519_mul_reduce4(out->x,a->x,scaled);
+#else
     ossl_ee_x25519_mul_sums4(sums, a->x, scaled);
+#endif
     /* Best-effort explicit wiping of key-dependent scratch values. */
     {
         volatile unsigned char *p = (volatile unsigned char *)scaled;
@@ -155,12 +169,14 @@ static void fe_mul(ee_fe4 *out, const ee_fe4 *a, const ee_fe4 *b)
         for (n = 0; n < sizeof(scaled); ++n) p[n] = 0;
     }
 #endif
+#ifndef EE_MMI_X25519_FUSED_REDUCE
     fe_reduce(out, sums);
     {
         volatile unsigned char *p = (volatile unsigned char *)sums;
         size_t n;
         for (n = 0; n < sizeof(sums); ++n) p[n] = 0;
     }
+#endif
 }
 static void fe_square(ee_fe4 *out, const ee_fe4 *a)
 {

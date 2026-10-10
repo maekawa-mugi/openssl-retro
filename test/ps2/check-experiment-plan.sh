@@ -39,7 +39,10 @@ ossl_ee_bn_muladd_row_mmi ${object_tag}ossl_ee_bn_muladd_row_mmi" ]]
 }
 source test/ps2/build-experiments.sh
 expected_objects=15
-if [[ "$ps2_profile" == selected ]]; then expected_objects=9; fi
+if [[ "$ps2_profile" == selected ]]; then
+    expected_objects=9
+    if [[ ${PS2_NEW_IDEAS:-1} == 1 ]]; then expected_objects=18; fi
+fi
 [[ ${#objects[@]} == "$expected_objects" && -z "$object_tag" ]]
 [[ ${objects[0]} == original-a.o && ${objects[1]} == original-b.o ]]
 if [[ "$ps2_profile" != selected ]]; then [[ ${objects[2]} == original-f.o ]]; fi
@@ -50,6 +53,7 @@ for tag in "${experiments[@]}"; do
     [[ $(grep -c '^crypto/sha/sha256-ee-mmi[^ ]*\.S ' "$plan") == 1 ]]
     [[ $(grep -c '^crypto/modes/ghash-ee-mmi[^ ]*\.S ' "$plan") == 1 ]]
     [[ $(grep -c '^crypto/aes/aes-ee-mmi[^ ]*\.S ' "$plan") == 1 ]]
+    [[ $(grep -c '^crypto/chacha/chacha-ee-mmi[^ ]*\.S ' "$plan") == 1 ]]
     [[ $(grep -Ec '^crypto/poly1305/poly1305-ee-(pmadduw|preload-mmi|reduce-mmi)\.S ' "$plan") == 1 ]]
     [[ $(grep -c -- '-UEE_MMI_GHASH_WINDOW_BITS' "$plan") == $(wc -l < "$plan") ]]
 done
@@ -82,4 +86,28 @@ fi
 grep -q 'chacha-ee-wrap.c' "$tmp/w_plan.txt"
 grep -q 'test/ee_mmi/chacha20_test.c' "$tmp/w_plan.txt"
 [[ $(grep -c '^crypto/chacha/.*\.c ' "$tmp/w_plan.txt") == 1 ]]
+if [[ "$ps2_profile" == selected && ${PS2_NEW_IDEAS:-1} == 1 ]]; then
+    grep -q -- '-DEE_MMI_AES_SHIFTROWS_FIXED' "$tmp/j_plan.txt"
+    grep -q -- '-DEE_MMI_GCM_FULL_BLOCK' "$tmp/l_plan.txt"
+    grep -q 'ghash-ee-mmi-unroll8.S' "$tmp/l_plan.txt"
+    grep -q -- '-DEE_MMI_P256_REDC_UNROLL' "$tmp/t_plan.txt"
+    grep -q 'bn-ee-row-reg-mmi.S' "$tmp/t_plan.txt"
+    [[ $(grep -c 'test/ee_mmi/.*_test.c' "$tmp/t_plan.txt") == 2 ]]
+    grep -q -- '-DEE_MMI_AES_VECTOR_SBOX' "$tmp/u_plan.txt"
+    grep -q 'aes-ee-subbytes-mmi.S' "$tmp/u_plan.txt"
+    grep -q -- '-DEE_MMI_P256_MUL8' "$tmp/v_plan.txt"
+    grep -q 'p256-ee-mul8-mmi.S' "$tmp/v_plan.txt"
+    grep -q -- '-DEE_MMI_X25519_FUSED_REDUCE' "$tmp/x_plan.txt"
+    grep -q 'x25519-ee-reduce-mmi.S' "$tmp/x_plan.txt"
+    grep -q 'chacha-ee-wrap.c' "$tmp/y_plan.txt"
+    grep -q 'chacha-ee-mmi-interleave.S' "$tmp/y_plan.txt"
+    grep -q -- '-DEE_MMI_GCM_WORD_CORE' "$tmp/z_plan.txt"
+    grep -q -- '-DEE_MMI_GCM_FULL_BLOCK' "$tmp/z_plan.txt"
+    grep -q 'ghash-ee-mmi-unroll8.S' "$tmp/z_plan.txt"
+    grep -q -- '-DEE_MMI_P256_SQUARE' "$tmp/o_plan.txt"
+    grep -q 'p256-ee-square-mmi.S' "$tmp/o_plan.txt"
+    for tag in u v x z o; do
+        grep -q 'test/ee_mmi/six_ideas_test.c' "$tmp/${tag}_plan.txt"
+    done
+fi
 printf 'PASS: experiment build plan, source selection, waits, symbol prefixes and original objects\n'

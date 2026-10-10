@@ -1,9 +1,10 @@
 # PCSX2 / PS2 EE MMI regression ELF
 
-## Default: ten real-EE-selected algorithms
+## Default: ten real-EE-selected algorithms plus nine candidates
 
-A normal `PS2_AB=1` build now selects ten rows based on the supplied
-real-console log. Each optimized candidate runs its full correctness
+A normal `PS2_AB=1` build selects ten winners based on the supplied
+real-console log and appends nine candidate rows (19 total).
+`PS2_NEW_IDEAS=0` restores the ten selected rows. Each optimized candidate runs its full correctness
 suite, compares against the unchanged scalar B, and checks output digests
 outside the timing region. Unchanged workloads, six alternating samples
 and median timing permit comparison with the archived run.
@@ -11,6 +12,8 @@ and median timing permit comparison with the archived run.
 ```sh
 PS2_AB=1 bash test/ps2/build.sh
 # equivalent: PS2_AB=1 PS2_PROFILE=selected bash test/ps2/build.sh
+# ten selected winners only:
+PS2_AB=1 PS2_NEW_IDEAS=0 bash test/ps2/build.sh
 # old 25-row comparison:
 PS2_AB=1 PS2_PROFILE=all PS2_SCHED_GHASH=3 bash test/ps2/build.sh
 # old ten baseline algorithms with optional historical Poly F:
@@ -30,10 +33,57 @@ PS2_AB=1 PS2_PROFILE=legacy bash test/ps2/build.sh
 | P256 ECDH | P256 reg |
 | AES-GCM | GCM u8 |
 
+The new candidates are enabled only in selected mode, with separate
+namespaces and the same scalar workloads, repetitions and median6 timing:
+
+| New row | Compare A time with | Hypothesis |
+| --- | --- | --- |
+| AES fixedSR | AES | Four fixed mask expressions per lane replace ShiftRows loops and old/shifted arrays; tower S-box and round ASM unchanged |
+| GCM full | GCM u8 | Initialize IVs once, use alias-safe word XOR for full blocks, GHASH the output directly; original AES and GHASH u8 unchanged |
+| P256 redc7 | P256 reg | Expand the already shifted, prime-specific seven-word REDC schedule, reuse q*(2^32-1), and remove the coefficient-selection loop |
+| AES sbox16 | AES fixedSR | Apply the existing tower-field S-box equations to sixteen bytes per MMI register; retain fixed ShiftRows |
+| P256 mul8 | P256 redc7 | Keep the ten-word CIOS accumulator in registers and combine all eight product/prime-REDC rows in one ASM call |
+| X25519 fused | X25519 | Carry-normalize the two 64-bit lanes in registers after convolution, avoiding the 320-byte sum buffer and C reduction |
+| ChaCha C1w | ChaCha wrap | Use the existing interleaved C1 round kernel with the reusable-state/word-XOR wrapper |
+| GCM words | GCM full | Retain counter and keystream in internal word-major AES layout; convert only the partial block back to bytes |
+| P256 square | P256 redc7 | Use 36 symmetric products instead of 64, with a 96-bit Comba accumulator and separate prime-specific REDC |
+
+The three flags are EE_MMI_AES_SHIFTROWS_FIXED, EE_MMI_GCM_FULL_BLOCK
+and EE_MMI_P256_REDC_UNROLL, isolated in namespaces j/l/t. The six
+additional namespaces are u/v/x/y/z/o. Every row
+runs its full existing target regression. P256 redc7 also runs its own BN
+preflight. GCM retains partial-block padding, unaligned/in-place buffers,
+private scratch wipes, and verify-before-release. GCM words keeps the
+original S-box and ShiftRows to isolate layout/lifetime changes.
+
+`python test/ps2/check-new-ideas.py` checks actual ShiftRows expressions,
+P256 source REDC steps plus the MMI row trace, and a GCM wrapper model
+with a synthetic (non-AES) keystream. These are not compiled-C tests.
+AES key sizes, GCM real ciphertext/tags/tamper rejection, P256 ECDH
+vectors and performance still require the user's target build. No speed
+claim has been made for these candidates.
+
+`python test/ps2/check-six-ideas.py` replays the four new ASM files,
+checks full-width products/REDC/carries against independent integer
+arithmetic, and checks aliasing, output bounds, full saved-register ABI
+and private stack wipes. It also composes the existing C1 source schedule
+with the ChaCha wrapper and models GCM's word-major full/partial paths.
+`python test/ps2/generate-six-ideas.py --check` checks generated-source
+reproducibility without a compiler. The five new primitive backends run
+`six_ideas_test.c` before their full target suites and timing. These tests
+cover all AES byte values, P256 multiplication/squaring against general
+Montgomery arithmetic, X25519 carry math, and all three AES key sizes in
+the internal word core. ChaCha C1w runs its existing complete suite.
+
+These candidates may lose on hardware: AES register spills/save traffic,
+P256 square's separate reduction, and X25519's expanded instruction
+footprint all need measurement. Re-run the baseline rows in this ELF;
+the common AES rounds were factored into a shared private function.
+
 Selected mode omits the duplicate Poly F namespace and builds seven
-private candidate namespaces (r/g/c/d/q/e/w), instead of twelve. Sparse
+private candidate namespaces (r/g/c/d/q/e/w), instead of twelve. With all nine new ideas enabled it builds sixteen. Sparse
 backend slots keep the archive's IDs stable; absent slots are not prepared.
-The normal screen returns to four header lines and ten algorithm rows.
+The normal screen has four header lines and ten or nineteen algorithm rows.
 The existing schedule matrix still defaults to the legacy profile.
 
 In all profiles scalar validation is cached once per workload. A failed

@@ -11,6 +11,9 @@
 #include <string.h>
 #include "crypto/ee_aes_gcm.h"
 #include "crypto/ee_ghash_window.h"
+#if defined(EE_MMI_GCM_WORD_CORE) && !defined(EE_MMI_GCM_FULL_BLOCK)
+# error "The GCM word-core candidate requires the full-block XOR path"
+#endif
 #if defined(EE_MMI_GHASH_WINDOW_BITS)
 # define GCM_WIN_DECL , const ossl_ee_ghash_window_ctx *window
 # define GCM_WIN_ARG , window
@@ -142,13 +145,56 @@ static int gcm_ctr4(const ossl_ee_aes_gcm4_key *ctx,
     unsigned char stream[4][16] __attribute__((aligned(16)));
     unsigned char cipher[4][16] __attribute__((aligned(16)));
     const unsigned char *auth[4];
+#ifdef EE_MMI_GCM_WORD_CORE
+    uint32_t count_words[4][4] __attribute__((aligned(16)));
+    uint32_t stream_words[4][4] __attribute__((aligned(16)));
+    unsigned int word;
+#endif
     uint32_t counter = 2;
     size_t offset = 0, n, j;
     unsigned int lane;
+#if defined(EE_MMI_GCM_FULL_BLOCK) && !defined(EE_MMI_GCM_WORD_CORE)
+    /* IV is constant for all payload blocks in this invocation. */
+    for (lane = 0; lane < 4; ++lane)
+        memcpy(count[lane], iv[lane], 12);
+#endif
+#ifdef EE_MMI_GCM_WORD_CORE
+    for (word=0;word<3;++word)
+        for (lane=0;lane<4;++lane) {
+            const unsigned char *p=iv[lane]+4*word;
+            count_words[word][lane]=(uint32_t)p[0]|((uint32_t)p[1]<<8)
+                                  |((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);
+        }
+#endif
     while (offset < len) {
         n = len - offset < 16 ? len - offset : 16;
+#ifdef EE_MMI_GCM_WORD_CORE
+        /* Counter bytes are big endian, AES words are little endian. */
+        for (lane=0;lane<4;++lane)
+            count_words[3][lane]=(counter>>24)|((counter>>8)&0xff00U)
+                               |((counter<<8)&0xff0000U)|(counter<<24);
+        memcpy(stream_words,count_words,sizeof(stream_words));
+        if (!ossl_ee_aes_encrypt_words4(stream_words,&ctx->aes)) {
+            gcm_wipe(count_words,sizeof(count_words));
+            gcm_wipe(stream_words,sizeof(stream_words));
+            gcm_wipe(count,sizeof(count)); gcm_wipe(stream,sizeof(stream));
+            gcm_wipe(cipher,sizeof(cipher));
+            return 0;
+        }
+        if (n<16)
+            for (word=0;word<4;++word)
+                for (lane=0;lane<4;++lane) {
+                    uint32_t v=stream_words[word][lane];
+                    stream[lane][4*word]=(unsigned char)v;
+                    stream[lane][4*word+1]=(unsigned char)(v>>8);
+                    stream[lane][4*word+2]=(unsigned char)(v>>16);
+                    stream[lane][4*word+3]=(unsigned char)(v>>24);
+                }
+#else
         for (lane = 0; lane < 4; ++lane) {
+#ifndef EE_MMI_GCM_FULL_BLOCK
             memcpy(count[lane], iv[lane], 12);
+#endif
             put_be32(count[lane] + 12, counter);
         }
         if (!ossl_ee_aes_encrypt4(stream, count, &ctx->aes)) {
@@ -157,14 +203,37 @@ static int gcm_ctr4(const ossl_ee_aes_gcm4_key *ctx,
             gcm_wipe(cipher, sizeof(cipher));
             return 0;
         }
-        for (lane = 0; lane < 4; ++lane) {
-            memset(cipher[lane], 0, 16);
-            for (j = 0; j < n; ++j) {
-                unsigned char value = in[lane][offset+j] ^ stream[lane][j];
-                out[lane][offset+j] = value;
-                cipher[lane][j] = value;
+#endif
+#ifdef EE_MMI_GCM_FULL_BLOCK
+        if (n == 16) {
+            for (lane = 0; lane < 4; ++lane) {
+                for (j = 0; j < 16; j += 4) {
+                    uint32_t input_word, stream_word;
+                    memcpy(&input_word, in[lane] + offset + j, 4);
+#ifdef EE_MMI_GCM_WORD_CORE
+                    stream_word=stream_words[j/4][lane];
+#else
+                    memcpy(&stream_word, stream[lane] + j, 4);
+#endif
+                    input_word ^= stream_word;
+                    memcpy(out[lane] + offset + j, &input_word, 4);
+                }
+                /* GHASH reads complete output blocks directly. This pointer
+                 * is caller storage and is never passed to gcm_wipe. */
+                auth[lane] = out[lane] + offset;
             }
-            auth[lane] = cipher[lane];
+        } else
+#endif
+        {
+            for (lane = 0; lane < 4; ++lane) {
+                memset(cipher[lane], 0, 16);
+                for (j = 0; j < n; ++j) {
+                    unsigned char value = in[lane][offset+j] ^ stream[lane][j];
+                    out[lane][offset+j] = value;
+                    cipher[lane][j] = value;
+                }
+                auth[lane] = cipher[lane];
+            }
         }
         if (seal)
             gcm_auth_block(state, ctx->h, auth GCM_WIN_ARG);
@@ -172,6 +241,10 @@ static int gcm_ctr4(const ossl_ee_aes_gcm4_key *ctx,
         if (offset < len)
             ++counter;
     }
+#ifdef EE_MMI_GCM_WORD_CORE
+    gcm_wipe(count_words,sizeof(count_words));
+    gcm_wipe(stream_words,sizeof(stream_words));
+#endif
     gcm_wipe(count, sizeof(count));
     gcm_wipe(stream, sizeof(stream));
     gcm_wipe(cipher, sizeof(cipher));

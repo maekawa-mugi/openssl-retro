@@ -292,6 +292,21 @@ void ossl_ee_aes_clear_key(ossl_ee_aes4_key *ctx)
 
 static void aes_shiftrows4(uint32_t state[4][4])
 {
+#ifdef EE_MMI_AES_SHIFTROWS_FIXED
+    unsigned int lane;
+    for (lane = 0; lane < 4; ++lane) {
+        uint32_t a = state[0][lane], b = state[1][lane];
+        uint32_t c = state[2][lane], d = state[3][lane];
+        state[0][lane] = (a & 0x000000ffU) | (b & 0x0000ff00U)
+                      | (c & 0x00ff0000U) | (d & 0xff000000U);
+        state[1][lane] = (b & 0x000000ffU) | (c & 0x0000ff00U)
+                      | (d & 0x00ff0000U) | (a & 0xff000000U);
+        state[2][lane] = (c & 0x000000ffU) | (d & 0x0000ff00U)
+                      | (a & 0x00ff0000U) | (b & 0xff000000U);
+        state[3][lane] = (d & 0x000000ffU) | (a & 0x0000ff00U)
+                      | (b & 0x00ff0000U) | (c & 0xff000000U);
+    }
+#else
     unsigned int lane, col, row;
     for (lane = 0; lane < 4; ++lane) {
         uint32_t old[4], shifted[4];
@@ -307,6 +322,7 @@ static void aes_shiftrows4(uint32_t state[4][4])
         for (col = 0; col < 4; ++col)
             state[col][lane] = shifted[col];
     }
+#endif
 }
 
 #ifdef EE_MMI_AES_SCALAR_ROUND
@@ -320,27 +336,22 @@ static uint32_t aes_mixword(uint32_t word)
 }
 #endif
 
-int ossl_ee_aes_encrypt4(unsigned char out[4][16],
-                         const unsigned char in[4][16],
-                         const ossl_ee_aes4_key *ctx)
+#ifdef EE_MMI_AES_VECTOR_SBOX
+extern void ossl_ee_aes_subbytes16_mmi(uint32_t column[4]);
+#endif
+/* Shared rounds: state is aligned, word-major, with initial ARK applied. */
+static void aes_rounds4(uint32_t state[4][4], const ossl_ee_aes4_key *ctx)
 {
-    uint32_t state[4][4] __attribute__((aligned(16)));
     unsigned int round, col, lane;
-    if (out == NULL || in == NULL || ctx == NULL
-        || (ctx->rounds != 10 && ctx->rounds != 12
-            && ctx->rounds != 14))
-        return 0;
-
-    /* Interleave 4 independent AES blocks, column-major by block. */
-    for (col = 0; col < 4; ++col)
-        for (lane = 0; lane < 4; ++lane)
-            state[col][lane] = load_le32(in[lane] + 4*col)
-                                   ^ ctx->round_key[0][col][lane];
-
     for (round = 1; round < ctx->rounds; ++round) {
+#ifdef EE_MMI_AES_VECTOR_SBOX
+        for (col = 0; col < 4; ++col)
+            ossl_ee_aes_subbytes16_mmi(state[col]);
+#else
         for (col = 0; col < 4; ++col)
             for (lane = 0; lane < 4; ++lane)
                 state[col][lane] = aes_sbox4(state[col][lane]);
+#endif
         aes_shiftrows4(state);
 #ifdef EE_MMI_AES_SCALAR_ROUND
         for (col = 0; col < 4; ++col)
@@ -353,14 +364,58 @@ int ossl_ee_aes_encrypt4(unsigned char out[4][16],
     }
 
     /* Final round omits MixColumns. */
+#ifdef EE_MMI_AES_VECTOR_SBOX
+    for (col = 0; col < 4; ++col)
+        ossl_ee_aes_subbytes16_mmi(state[col]);
+#else
     for (col = 0; col < 4; ++col)
         for (lane = 0; lane < 4; ++lane)
             state[col][lane] = aes_sbox4(state[col][lane]);
+#endif
     aes_shiftrows4(state);
     for (col = 0; col < 4; ++col)
         for (lane = 0; lane < 4; ++lane)
-            store_le32(out[lane]+4*col, state[col][lane]
-                              ^ ctx->round_key[ctx->rounds][col][lane]);
+            state[col][lane] ^= ctx->round_key[ctx->rounds][col][lane];
+
+}
+
+#ifdef EE_MMI_GCM_WORD_CORE
+int ossl_ee_aes_encrypt_words4(uint32_t state[4][4],
+                               const ossl_ee_aes4_key *ctx)
+{
+    unsigned int col, lane;
+    if (state == NULL || ctx == NULL
+        || (ctx->rounds != 10 && ctx->rounds != 12 && ctx->rounds != 14))
+        return 0;
+    for (col = 0; col < 4; ++col)
+        for (lane = 0; lane < 4; ++lane)
+            state[col][lane] ^= ctx->round_key[0][col][lane];
+    aes_rounds4(state,ctx);
+    return 1;
+}
+#endif
+
+int ossl_ee_aes_encrypt4(unsigned char out[4][16],
+                         const unsigned char in[4][16],
+                         const ossl_ee_aes4_key *ctx)
+{
+    uint32_t state[4][4] __attribute__((aligned(16)));
+    unsigned int col, lane;
+    if (out == NULL || in == NULL || ctx == NULL
+        || (ctx->rounds != 10 && ctx->rounds != 12
+            && ctx->rounds != 14))
+        return 0;
+
+    /* Interleave 4 independent AES blocks, column-major by block. */
+    for (col = 0; col < 4; ++col)
+        for (lane = 0; lane < 4; ++lane)
+            state[col][lane] = load_le32(in[lane] + 4*col)
+                                   ^ ctx->round_key[0][col][lane];
+
+    aes_rounds4(state,ctx);
+    for (col = 0; col < 4; ++col)
+        for (lane = 0; lane < 4; ++lane)
+            store_le32(out[lane]+4*col,state[col][lane]);
 
     aes_wipe(state, sizeof(state));
     return 1;

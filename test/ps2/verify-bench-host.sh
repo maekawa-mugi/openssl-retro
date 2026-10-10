@@ -37,6 +37,7 @@ bash -n test/ps2/build-variants.sh
 bash -n test/ps2/build-experiments.sh
 bash test/ps2/check-experiment-plan.sh all
 bash test/ps2/check-experiment-plan.sh selected
+PS2_NEW_IDEAS=0 bash test/ps2/check-experiment-plan.sh selected
 "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
     -Iinclude -I. test/ps2/bench.c
 "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
@@ -56,6 +57,8 @@ python3 test/ps2/check-redc-shift.py
 python3 test/ps2/check-poly-rsa.py
 python3 test/ps2/check-public-square.py
 python3 test/ps2/check-chacha-wrap.py
+python3 test/ps2/check-new-ideas.py
+python3 test/ps2/check-six-ideas.py
 python3 test/ee_mmi/check-aes-tower.py
 python3 test/ee_mmi/check-bn-row.py
 python3 test/ee_mmi/check-ghash-windows.py
@@ -98,4 +101,21 @@ done
     -DEE_MMI_BN_HOST_TEST -Iinclude -I. test/ee_mmi/bn_mont_test.c
 "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
     -Iinclude -I. crypto/chacha/chacha-ee-wrap.c
+"$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+    -I"$tmp" -DPS2_AB -DPS2_EXPERIMENTS -DPS2_SELECTED -DPS2_NEW_IDEAS test/ps2/main.c
+"$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+    -Iinclude -I. -DEE_MMI_AES_TOWER_SBOX -DEE_MMI_AES_SHIFTROWS_FIXED crypto/aes/aes-ee-mmi.c
+"$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+    -Iinclude -I. -DEE_MMI_GCM_FULL_BLOCK crypto/modes/aes-gcm-ee-mmi.c
+"$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+    -Iinclude -I. -DEE_MMI_BN_ROW_FUSED -DEE_MMI_P256_REDC_UNROLL crypto/ec/p256-ee-mmi.c
+for candidate in AES_VECTOR_SBOX P256_MUL8 P256_SQUARE X25519_FUSED_REDUCE GCM_WORD_CORE; do
+    extra_flags=("-DEE_MMI_$candidate" -DEE_MMI_AES_TOWER_SBOX
+                 -DEE_MMI_BN_ROW_FUSED -DEE_MMI_P256_REDC_UNROLL
+                 -DEE_MMI_GCM_FULL_BLOCK)
+    "$cc" -std=c99 -Wall -Wextra -Werror -fsyntax-only \
+        -Iinclude -I. "${extra_flags[@]}" test/ee_mmi/six_ideas_test.c \
+        crypto/aes/aes-ee-mmi.c crypto/ec/p256-ee-mmi.c \
+        crypto/ec/x25519-ee-mmi.c crypto/modes/aes-gcm-ee-mmi.c
+done
 printf 'PASS: PS2 A/B/F benchmark host syntax and linkage-plan checks\n'

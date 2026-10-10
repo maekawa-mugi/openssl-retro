@@ -145,6 +145,26 @@ int e_ps2_test_poly1305(int, char **);
 int n_ps2_test_bn_mont(int, char **);
 int n_ps2_test_rsa(int, char **);
 int w_ps2_test_chacha20(int, char **);
+#ifdef PS2_NEW_IDEAS
+int j_ps2_test_aes(int, char **);
+int l_ps2_test_aes_gcm(int, char **);
+int t_ps2_test_bn_mont(int, char **);
+int t_ps2_test_p256_ecdh(int, char **);
+int u_ps2_test_aes(int, char **);
+int v_ps2_test_p256_ecdh(int, char **);
+int v_ps2_test_bn_mont(int, char **);
+int x_ps2_test_x25519(int, char **);
+int y_ps2_test_chacha20(int, char **);
+int z_ps2_test_aes_gcm(int, char **);
+int z_ps2_test_aes(int, char **);
+int o_ps2_test_p256_ecdh(int, char **);
+int o_ps2_test_bn_mont(int, char **);
+int u_ps2_test_six_ideas(int, char **);
+int v_ps2_test_six_ideas(int, char **);
+int x_ps2_test_six_ideas(int, char **);
+int z_ps2_test_six_ideas(int, char **);
+int o_ps2_test_six_ideas(int, char **);
+#endif
 #endif
 
 int ps2_bench_prepare(void);
@@ -177,6 +197,17 @@ DECLARE_EXPERIMENT(q);
 DECLARE_EXPERIMENT(e);
 DECLARE_EXPERIMENT(n);
 DECLARE_EXPERIMENT(w);
+#ifdef PS2_NEW_IDEAS
+DECLARE_EXPERIMENT(j);
+DECLARE_EXPERIMENT(l);
+DECLARE_EXPERIMENT(t);
+DECLARE_EXPERIMENT(u);
+DECLARE_EXPERIMENT(v);
+DECLARE_EXPERIMENT(x);
+DECLARE_EXPERIMENT(y);
+DECLARE_EXPERIMENT(z);
+DECLARE_EXPERIMENT(o);
+#endif
 #endif
 
 struct suite {
@@ -198,6 +229,17 @@ static const struct suite suites[] = {
     {"RSA tight",{q_ps2_test_rsa,b_ps2_test_rsa,NULL}, 1, 7, 11},
     {"P256 reg",{r_ps2_test_p256_ecdh,b_ps2_test_p256_ecdh,NULL}, 1, 8, 3},
     {"GCM u8",{c_ps2_test_aes_gcm,b_ps2_test_aes_gcm,NULL}, 2, 9, 8},
+#ifdef PS2_NEW_IDEAS
+    {"AES fixedSR",{j_ps2_test_aes,b_ps2_test_aes,NULL}, 5, 3, 15},
+    {"GCM full",{l_ps2_test_aes_gcm,b_ps2_test_aes_gcm,NULL}, 2, 9, 16},
+    {"P256 redc7",{t_ps2_test_p256_ecdh,b_ps2_test_p256_ecdh,NULL}, 1, 8, 17},
+    {"AES sbox16",{u_ps2_test_aes,b_ps2_test_aes,NULL}, 5, 3, 18},
+    {"P256 mul8",{v_ps2_test_p256_ecdh,b_ps2_test_p256_ecdh,NULL}, 1, 8, 19},
+    {"X25519 fused",{x_ps2_test_x25519,b_ps2_test_x25519,NULL}, 1, 6, 20},
+    {"ChaCha C1w",{y_ps2_test_chacha20,b_ps2_test_chacha20,NULL}, 12, 0, 21},
+    {"GCM words",{z_ps2_test_aes_gcm,b_ps2_test_aes_gcm,NULL}, 2, 9, 22},
+    {"P256 square",{o_ps2_test_p256_ecdh,b_ps2_test_p256_ecdh,NULL}, 1, 8, 23},
+#endif
 #else
 
     {"ChaCha20", {ps2_test_chacha20,b_ps2_test_chacha20,NULL}, 12, 0, 0},
@@ -256,6 +298,17 @@ static const struct backend backends[] = {
     [11] = EXPERIMENT_BACKEND(q),
     [12] = EXPERIMENT_BACKEND(e),
     [14] = EXPERIMENT_BACKEND(w),
+#ifdef PS2_NEW_IDEAS
+    [15] = EXPERIMENT_BACKEND(j),
+    [16] = EXPERIMENT_BACKEND(l),
+    [17] = EXPERIMENT_BACKEND(t),
+    [18] = EXPERIMENT_BACKEND(u),
+    [19] = EXPERIMENT_BACKEND(v),
+    [20] = EXPERIMENT_BACKEND(x),
+    [21] = EXPERIMENT_BACKEND(y),
+    [22] = EXPERIMENT_BACKEND(z),
+    [23] = EXPERIMENT_BACKEND(o),
+#endif
 #ifndef PS2_SELECTED
     [4] = EXPERIMENT_BACKEND(h),
     [5] = EXPERIMENT_BACKEND(s),
@@ -318,6 +371,36 @@ static int validate_one(unsigned int i)
         if (suites[i].tests[0] == r_ps2_test_p256_ecdh && mode == 0) {
             char *bn_argv[] = {(char *)"P256 reg BN",NULL};
             if (r_ps2_test_bn_mont(1,bn_argv) != 0)
+                ++failures;
+        }
+#endif
+#ifdef PS2_NEW_IDEAS
+        if (suites[i].tests[0] == t_ps2_test_p256_ecdh && mode == 0) {
+            char *bn_argv[] = {(char *)"P256 redc7 BN",NULL};
+            if (t_ps2_test_bn_mont(1,bn_argv) != 0)
+                ++failures;
+        }
+        if (mode == 0) {
+            test_fn primitive = NULL, prerequisite = NULL;
+            if (suites[i].tests[0] == u_ps2_test_aes)
+                primitive = u_ps2_test_six_ideas;
+            if (suites[i].tests[0] == v_ps2_test_p256_ecdh) {
+                primitive = v_ps2_test_six_ideas;
+                prerequisite = v_ps2_test_bn_mont;
+            }
+            if (suites[i].tests[0] == x_ps2_test_x25519)
+                primitive = x_ps2_test_six_ideas;
+            if (suites[i].tests[0] == z_ps2_test_aes_gcm) {
+                primitive = z_ps2_test_six_ideas;
+                prerequisite = z_ps2_test_aes;
+            }
+            if (suites[i].tests[0] == o_ps2_test_p256_ecdh) {
+                primitive = o_ps2_test_six_ideas;
+                prerequisite = o_ps2_test_bn_mont;
+            }
+            if (prerequisite != NULL && prerequisite(1,argv) != 0)
+                ++failures;
+            if (primitive != NULL && primitive(1,argv) != 0)
                 ++failures;
         }
 #endif
@@ -478,6 +561,10 @@ int main(void)
     }
 #ifdef PS2_SELECTED
     printf("PS2 PROFILE: selected | ten real-EE winners + scalar | no Poly F\n");
+#ifdef PS2_NEW_IDEAS
+    printf("PS2 NEW IDEAS: AES fixedSR/sbox16, GCM full/words, "
+           "P256 redc7/mul8/square, X25519 fused, ChaCha C1w\n");
+#endif
 #elif defined(PS2_EXPERIMENTS)
     printf("PS2 EXTRA ROWS: BN/RSA/P256 reg, Poly hybrid, SHA u4, GHASH u8, AES K2early, GCM u8, BN/RSA shift, Poly preload, RSA tight, Poly reduce, RSA square, ChaCha wrap\n");
 #endif

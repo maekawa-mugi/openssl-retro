@@ -14,7 +14,7 @@ MASK = (1 << 32) - 1
 MASK64 = (1 << 64) - 1
 
 def read(path):
-    return (ROOT / path).read_text()
+    return (ROOT / path).read_text(encoding='utf-8')
 
 def sx(value):
     value &= MASK
@@ -223,7 +223,7 @@ assert "-DEE_MMI_BN_PUBLIC_SQUARE" in builder
 assert "-DEE_MMI_POLY1305_FUSED_REDUCE" in builder
 
 selected = main.split("#ifdef PS2_SELECTED\n",1)[1].split("#else",1)[0]
-assert len(re.findall(r'\{"',selected)) == 10
+assert len(re.findall(r'\{"',selected)) == 19
 assert "f_ps2_test_poly1305" not in selected
 assert "scalar_validation[suites[i].workload]" in main
 assert "backends[i].prepare == NULL" in main
@@ -233,4 +233,15 @@ build = read("test/ps2/build.sh")
 assert "ps2_profile=selected" in build
 assert '"$ps2_profile" != selected' in build
 assert "-DPS2_SELECTED" in build
-print("PASS: selected profile has ten winners, stable backend slots, cached scalar validation")
+for name,prefix,suite,reps,workload,slot in (
+    ("AES fixedSR","j","aes",5,3,15),
+    ("GCM full","l","aes_gcm",2,9,16),
+    ("P256 redc7","t","p256_ecdh",1,8,17)):
+    assert re.search(r'\{"'+name+r'",\s*\{'+prefix+r'_ps2_test_'+suite+
+                     r',b_ps2_test_'+suite+r',NULL\},\s*'+f'{reps}, {workload}, {slot}'+r'\}',selected)
+    assert f"[{slot}] = EXPERIMENT_BACKEND({prefix})" in main
+assert "experiments+=(j l t u v x y z o)" in builder
+assert "t_ps2_test_bn_mont(1,bn_argv)" in main
+assert "-DPS2_NEW_IDEAS" in build
+assert 4+19+1 < 28
+print("PASS: selected profile has ten winners + nine optional candidates, stable backend slots")

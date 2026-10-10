@@ -168,6 +168,12 @@ int ossl_ee_aes_encrypt4(unsigned char out[4][16],
                          const unsigned char in[4][16],
                          const ossl_ee_aes4_key *ctx);
 
+#ifdef EE_MMI_GCM_WORD_CORE
+/* Private aligned word-major AES state; caller wipes it after use. */
+int ossl_ee_aes_encrypt_words4(uint32_t state[4][4],
+                               const ossl_ee_aes4_key *ctx);
+#endif
+
 /*
  * AES-CTR using an explicit 96-bit prefix + big-endian 32-bit counter.
  * Arbitrary lengths, in-place supported. Returns 0 on pointer errors

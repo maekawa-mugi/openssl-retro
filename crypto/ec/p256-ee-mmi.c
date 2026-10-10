@@ -164,13 +164,16 @@ static void fe_sub(ee_fe *r,const ee_fe *a,const ee_fe *b)
  * REDC product cancels exactly: t[0]+t[0]*(2^32-1)=t[0]*2^32.
  * All loop counts and indices are public. The output may alias a/b.
  */
-#if defined(EE_MMI_BN_ROW_FUSED) && !defined(EE_MMI_BN_SCALAR_MUL)
+#if defined(EE_MMI_BN_ROW_FUSED) && !defined(EE_MMI_BN_SCALAR_MUL) && !defined(EE_MMI_P256_MUL8)
 static void fe_mul_p256_mmi(ee_fe *r,const ee_fe *a,const ee_fe *b)
 {
     uint32_t t[10]={0},diff[8];
     uint32_t carry, q, borrow, keep, mask;
     uint64_t z;
-    unsigned int i,j;
+    unsigned int i;
+#ifndef EE_MMI_P256_REDC_UNROLL
+    unsigned int j;
+#endif
 
     for(i=0;i<8;++i) {
         carry=ossl_ee_bn_muladd_row_mmi(t,a->v,b->v[i],8);
@@ -181,6 +184,26 @@ static void fe_mul_p256_mmi(ee_fe *r,const ee_fe *a,const ee_fe *b)
         q=t[0];
         /* Word zero disappears. Its carry is exactly q. */
         carry=q;
+#ifdef EE_MMI_P256_REDC_UNROLL
+        {
+            uint64_t qff = ((uint64_t)q << 32) - q;
+            /* Fixed prime words: ffff, ffff, 0, 0, 0, 1, ffff.
+             * Store each canceled/shifted word only after reading its source. */
+#define EE_P256_REDC_WORD(index, product) do { \
+                z = (uint64_t)t[index] + (product) + carry; \
+                t[(index)-1] = (uint32_t)z; \
+                carry = (uint32_t)(z >> 32); \
+            } while (0)
+            EE_P256_REDC_WORD(1, qff);
+            EE_P256_REDC_WORD(2, qff);
+            EE_P256_REDC_WORD(3, 0U);
+            EE_P256_REDC_WORD(4, 0U);
+            EE_P256_REDC_WORD(5, 0U);
+            EE_P256_REDC_WORD(6, q);
+            EE_P256_REDC_WORD(7, qff);
+#undef EE_P256_REDC_WORD
+        }
+#else
         for(j=1;j<8;++j) {
             uint64_t product;
             /* Explicitly skip the zero limbs; no branch depends on q. */
@@ -194,6 +217,7 @@ static void fe_mul_p256_mmi(ee_fe *r,const ee_fe *a,const ee_fe *b)
             t[j-1]=(uint32_t)z;
             carry=(uint32_t)(z>>32);
         }
+#endif
         z=(uint64_t)t[8]+carry;
         t[7]=(uint32_t)z;
         t[8]=t[9]+(uint32_t)(z>>32);
@@ -214,9 +238,49 @@ static void fe_mul_p256_mmi(ee_fe *r,const ee_fe *a,const ee_fe *b)
     ee_wipe(diff,sizeof(diff));
 }
 #endif
+#ifdef EE_MMI_P256_MUL8
+extern void ossl_ee_p256_mul8_mmi(uint32_t out[8], const uint32_t a[8],
+                                  const uint32_t b[8]);
+#endif
+#ifdef EE_MMI_P256_SQUARE
+extern void ossl_ee_p256_square_words_mmi(uint32_t out[18],
+                                          const uint32_t a[8]);
+void ossl_ee_p256_square8_mmi(uint32_t r[8], const uint32_t a[8])
+{
+    uint32_t t[18] __attribute__((aligned(16))), diff[8];
+    uint32_t q,carry,borrow=0,mask;
+    uint64_t qff,z;
+    unsigned int i,j;
+    ossl_ee_p256_square_words_mmi(t,a);
+    for (i=0;i<8;++i) {
+        q=t[i]; qff=((uint64_t)q<<32)-q; carry=q;
+        t[i]=0;
+        /* No secret-dependent propagation loop. All 18 words initialized. */
+        for (j=1;j<8;++j) {
+            uint64_t product=(j==1 || j==2 || j==7) ? qff : j==6 ? q : 0;
+            z=(uint64_t)t[i+j]+product+carry;
+            t[i+j]=(uint32_t)z; carry=(uint32_t)(z>>32);
+        }
+        for (j=i+8;j<18;++j) {
+            z=(uint64_t)t[j]+carry;
+            t[j]=(uint32_t)z; carry=(uint32_t)(z>>32);
+        }
+    }
+    for (i=0;i<8;++i) {
+        uint64_t sub=(uint64_t)P[i]+borrow;
+        diff[i]=(uint32_t)((uint64_t)t[i+8]-sub);
+        borrow=(uint32_t)((uint64_t)t[i+8]<sub);
+    }
+    mask=0U-((uint32_t)(t[16]==0U)&borrow);
+    for (i=0;i<8;++i) r[i]=(t[i+8]&mask)|(diff[i]&~mask);
+    ee_wipe(t,sizeof(t)); ee_wipe(diff,sizeof(diff));
+}
+#endif
 static void fe_mul(ee_fe *r,const ee_fe *a,const ee_fe *b)
 {
-#if defined(EE_MMI_BN_ROW_FUSED) && !defined(EE_MMI_BN_SCALAR_MUL)
+#if defined(EE_MMI_P256_MUL8)
+    ossl_ee_p256_mul8_mmi(r->v,a->v,b->v);
+#elif defined(EE_MMI_BN_ROW_FUSED) && !defined(EE_MMI_BN_SCALAR_MUL)
     fe_mul_p256_mmi(r,a,b);
 #else
     /* Retain the independently validated general BN oracle and B path. */
@@ -225,7 +289,11 @@ static void fe_mul(ee_fe *r,const ee_fe *a,const ee_fe *b)
 }
 static void fe_sq(ee_fe *r,const ee_fe *a)
 {
+#ifdef EE_MMI_P256_SQUARE
+    ossl_ee_p256_square8_mmi(r->v,a->v);
+#else
     fe_mul(r,a,a);
+#endif
 }
 static void fe_double(ee_fe *r,const ee_fe *a)
 {

@@ -577,3 +577,9 @@ compile_commands.json
 lcov.info
 run_tests
 depend
+
+# Additional handwritten EE candidate kernels.
+!/crypto/aes/aes-ee-subbytes-mmi.S
+!/crypto/ec/p256-ee-mul8-mmi.S
+!/crypto/ec/p256-ee-square-mmi.S
+!/crypto/ec/x25519-ee-reduce-mmi.S

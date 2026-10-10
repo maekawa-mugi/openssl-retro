@@ -88,3 +88,31 @@ unrolling is lower priority than the above measured bottleneck candidates.
 No new optimization kernel was enabled by this cleanup, and no build
 was run. Benchmark different lengths and RSA sizes before deleting the
 archived implementations outright.
+
+
+## Follow-up harness candidates (not yet measured)
+
+The selected profile now appends AES fixedSR, GCM full and P256 redc7,
+separately controlled by PS2_NEW_IDEAS=1. They compare fixed-mask
+ShiftRows, the full-block CTR/output path, and an expanded prime-specific
+REDC schedule respectively. Compare their A times to AES/GCM u8/P256
+reg in the same run. PS2_NEW_IDEAS=0 restores the ten-row selection.
+The existing speed table above is unchanged and does not describe these
+new candidates. No build, target regression or timing has been run for
+them by the agent.
+
+## Emulator follow-up and six further experiments
+
+The user's 13/13 PASS screenshot reports AES 3.207 ms vs fixedSR 3.027,
+GCM u8 22.852 vs full 22.788, and P256 reg 122.040 vs redc7 100.764.
+Within that emulator run these are 5.6%, 0.3%, and 17.4% shorter times.
+They do not supersede the real-console measurements above.
+
+Six further rows are now appended: AES sbox16, P256 mul8, X25519 fused,
+ChaCha C1w, GCM words, and P256 square. Compare their A times against
+fixedSR, redc7, X25519, ChaCha wrap, GCM full, and redc7 respectively.
+The default selected profile is 19 rows; PS2_NEW_IDEAS=0 remains ten.
+No timing or target PASS is claimed for these six. Direct primitive
+regressions and full suites gate their timing. In particular, a smaller
+product count does not guarantee that P256 square wins: the separate
+reduction and scratch traffic may outweigh savings, as with RSA square.

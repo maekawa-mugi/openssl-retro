@@ -6,6 +6,7 @@ experiment_objects=()
 experiments=(r h s g k c d p q e n w)
 if [[ ${ps2_profile:-all} == selected ]]; then
     experiments=(r g c d q e w)
+    if [[ ${PS2_NEW_IDEAS:-1} == 1 ]]; then experiments+=(j l t u v x y z o); fi
 fi
 for experiment in "${experiments[@]}"; do
     objects=()
@@ -13,6 +14,7 @@ for experiment in "${experiments[@]}"; do
     experiment_flags=(-UEE_MMI_GHASH_WINDOW_BITS -DEE_MMI_BN_ROW_FUSED
                       -DEE_MMI_POLY1305_FUSED_MADD -DEE_MMI_AES_TOWER_SBOX)
     experiment_chacha=crypto/chacha/chacha-ee-mmi.c
+    experiment_chacha_asm=crypto/chacha/chacha-ee-mmi.S
     experiment_bn=crypto/bn/bn-ee-row-mmi.S
     experiment_sha=crypto/sha/sha256-ee-mmi.S
     experiment_ghash=crypto/modes/ghash-ee-mmi.S
@@ -53,6 +55,34 @@ for experiment in "${experiments[@]}"; do
            experiment_tests=(bn_mont rsa) ;;
         w) experiment_chacha=crypto/chacha/chacha-ee-wrap.c
            experiment_tests=(chacha20) ;;
+        j) experiment_flags+=(-DEE_MMI_AES_SHIFTROWS_FIXED)
+           experiment_tests=(aes) ;;
+        l) experiment_flags+=(-DEE_MMI_GCM_FULL_BLOCK)
+           experiment_ghash=crypto/modes/ghash-ee-mmi-unroll8.S
+           experiment_tests=(aes_gcm) ;;
+        t) experiment_bn=crypto/bn/bn-ee-row-reg-mmi.S
+           experiment_flags+=(-DEE_MMI_P256_REDC_UNROLL)
+           experiment_tests=(bn_mont p256_ecdh) ;;
+        u) experiment_flags+=(-DEE_MMI_AES_SHIFTROWS_FIXED -DEE_MMI_AES_VECTOR_SBOX)
+           experiment_extra=(crypto/aes/aes-ee-subbytes-mmi.S)
+           experiment_tests=(aes six_ideas) ;;
+        v) experiment_bn=crypto/bn/bn-ee-row-reg-mmi.S
+           experiment_flags+=(-DEE_MMI_P256_REDC_UNROLL -DEE_MMI_P256_MUL8)
+           experiment_extra=(crypto/ec/p256-ee-mul8-mmi.S)
+           experiment_tests=(bn_mont p256_ecdh six_ideas) ;;
+        x) experiment_flags+=(-DEE_MMI_X25519_FUSED_REDUCE)
+           experiment_extra=(crypto/ec/x25519-ee-reduce-mmi.S)
+           experiment_tests=(x25519 six_ideas) ;;
+        y) experiment_chacha=crypto/chacha/chacha-ee-wrap.c
+           experiment_chacha_asm=crypto/chacha/chacha-ee-mmi-interleave.S
+           experiment_tests=(chacha20) ;;
+        z) experiment_flags+=(-DEE_MMI_GCM_FULL_BLOCK -DEE_MMI_GCM_WORD_CORE)
+           experiment_ghash=crypto/modes/ghash-ee-mmi-unroll8.S
+           experiment_tests=(aes aes_gcm six_ideas) ;;
+        o) experiment_bn=crypto/bn/bn-ee-row-reg-mmi.S
+           experiment_flags+=(-DEE_MMI_P256_REDC_UNROLL -DEE_MMI_P256_SQUARE)
+           experiment_extra=(crypto/ec/p256-ee-square-mmi.S)
+           experiment_tests=(bn_mont p256_ecdh six_ideas) ;;
     esac
     echo "Extra rows namespace=$experiment tests=${experiment_tests[*]}"
     for suite in "${experiment_tests[@]}"; do
@@ -60,7 +90,7 @@ for experiment in "${experiments[@]}"; do
             "-Dmain=ps2_test_$suite"
     done
     # Reuse identical workload inputs, calls, resets and digest code.
-    for src in "$experiment_chacha" crypto/chacha/chacha-ee-mmi.S \
+    for src in "$experiment_chacha" "$experiment_chacha_asm" \
         crypto/sha/sha256-ee-mmi.c "$experiment_sha" \
         crypto/poly1305/poly1305-ee-mmi.c crypto/poly1305/poly1305-ee-mmi.S \
         "$experiment_poly" \
