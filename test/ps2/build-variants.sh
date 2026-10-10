@@ -8,6 +8,9 @@ cd "$root"
 prefix="${1:-build-ps2-schedules}"
 # Reference and unrelated suites always select their default BN implementation.
 export PS2_SCHED_BN=0
+# Keep this existing per-ELF schedule matrix at ten rows by default.
+# Ordinary PS2_AB=1 builds use the hardware-selected ten-row profile.
+export PS2_EXPERIMENTS=${PS2_EXPERIMENTS:-0}
 case "$prefix" in
     ""|"/") echo "Refusing empty/root output directory" >&2; exit 2 ;;
 esac

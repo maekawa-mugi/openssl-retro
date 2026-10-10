@@ -84,6 +84,13 @@ void ossl_ee_poly1305_sums4(uint64_t sums[5][4],
                             const uint32_t a[5][4],
                             const uint32_t b[10][4]);
 
+/* Experimental preload + exact radix-2^26 carry/fold in assembly.
+ * Same input bounds/alignment as sums4; output is 80 bytes of limbs.
+ * out may alias a. Enabled only by EE_MMI_POLY1305_FUSED_REDUCE. */
+void ossl_ee_poly1305_mul_reduce4(uint32_t out[5][4],
+                                   const uint32_t a[5][4],
+                                   const uint32_t b[10][4]);
+
 /*
  * Experimental 4-way X25519 scalar multiplication. Inputs are four
  * independent 32-byte private scalars and four independent encoded

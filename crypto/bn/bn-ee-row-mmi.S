@@ -93,7 +93,13 @@ ossl_ee_bn_muladd_row_mmi:
     addiu   $a1, $a1, 8
 
 .Lee_bn_row_finish:
-    daddu   $v0, $8, $zero
+    /* C uint32_t returns must be sign-extended from bit31 in the
+     * 64-bit GPR, even though the value is unsigned. DSRL32 above
+     * keeps the internal carry zero-extended for exact additions;
+     * DADDU here would violate the C ABI for carries >= 0x80000000.
+     * A full-register comparison can then fail while printf("%08lx")
+     * still prints identical low words. SLL canonicalizes the return. */
+    sll     $v0, $8, 0
     /* Wipe operands and products retained in stack slots, never
      * depend on compiler optimizations to remove this cleanup. */
     sq      $zero, 0($v1)

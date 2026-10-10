@@ -183,6 +183,31 @@ int ossl_ee_rsa_public65537_prepared4(
                                key->mod, key->n0, num))
             goto done;
         memcpy(power, base, num * sizeof(uint32_t));
+#ifdef EE_MMI_RSA_SWAP_POWERS
+        {
+            uint32_t *current = power, *next = temp, *swap;
+            /* Alternate buffers instead of copying every square.
+             * Both arrays are still wiped at the common exit. */
+            for (j = 0; j < 16; ++j) {
+#ifdef EE_MMI_BN_PUBLIC_SQUARE
+                if (!ossl_ee_bn_mont_sqr32(next, current, key->mod,
+                                           key->n0, num))
+#else
+                if (!ossl_ee_bn_mont32(next, current, current, key->mod,
+                                       key->n0, num))
+#endif
+                    goto done;
+                swap = current;
+                current = next;
+                next = swap;
+            }
+            if (!ossl_ee_bn_mont32(next, current, base, key->mod, key->n0, num)
+                || !ossl_ee_bn_mont32(current, next, one, key->mod,
+                                       key->n0, num))
+                goto done;
+            rsa_words_to_be(out[lane], current, num * 4);
+        }
+#else
         for (j = 0; j < 16; ++j) {
             if (!ossl_ee_bn_mont32(temp, power, power, key->mod,
                                    key->n0, num))
@@ -194,6 +219,7 @@ int ossl_ee_rsa_public65537_prepared4(
                                    key->n0, num))
             goto done;
         rsa_words_to_be(out[lane], power, num * 4);
+#endif
     }
     ok = 1;
 done:

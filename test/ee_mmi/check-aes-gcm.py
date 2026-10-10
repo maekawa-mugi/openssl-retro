@@ -50,15 +50,19 @@ assert ghash(h, b"",ct+b"\x00") != ghash(h,b"",ct)
 
 assert "ossl_ee_aes_encrypt4" in core
 assert "ossl_ee_ghash_mul4" in core
-assert "gcm_auth_block(state, ctx->h, auth);" in core
+assert "gcm_auth_block(state, ctx->h, auth GCM_WIN_ARG);" in core
 assert "ossl_ee_ghash_update4(" not in core
-assert "gcm_auth_bytes(state, ctx->h, aad, aad_len);" in core
-assert "gcm_auth_bytes(state, ctx->h, in, len);" in core
+assert "gcm_auth_bytes(state, ctx->h, aad, aad_len GCM_WIN_ROOT);" in core
+assert "gcm_auth_bytes(state, ctx->h, in, len GCM_WIN_ROOT);" in core
+# Cached-window parameters are optional; GCM u8 compiles the ordinary
+# ossl_ee_ghash_mul4 call and links the eight-step bit-serial assembler.
+assert "# define GCM_WIN_ARG\n" in core
+assert "# define GCM_WIN_ROOT\n" in core
 assert "put_be64(length_block[lane], (uint64_t)aad_len * 8);" in core
 assert "put_be64(length_block[lane] + 8, (uint64_t)len * 8);" in core
 assert "if (diff != 0)" in core
 assert core.index("if (diff != 0)") < core.index(
-    "ok = gcm_ctr4(ctx, out, in, len, iv, state, 0)")
+    "ok = gcm_ctr4(ctx, out, in, len, iv, state, 0 GCM_WIN_ROOT)")
 assert "blocks > (uint64_t)UINT32_MAX - 1U" in core
 assert "gcm_wipe(expected, sizeof(expected));" in core
 assert "ossl_ee_aes_gcm4_open" in head

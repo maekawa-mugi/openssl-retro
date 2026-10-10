@@ -6,6 +6,7 @@ full differential test/ee_mmi/bn_mont_test.c on real EE hardware.
 """
 from pathlib import Path
 import random
+import re
 ROOT=Path(__file__).resolve().parents[2]
 s=(ROOT/"crypto/bn/bn-ee-row-mmi.S").read_text()
 c=(ROOT/"crypto/bn/bn-ee-mmi.c").read_text()
@@ -41,6 +42,30 @@ assert "($sp)" not in s, "all scratch accesses must use aligned $v1"
 assert "daddu   $9, $9, $10" in s
 assert "daddu   $9, $9, $8" in s
 
+# Model the actual return instruction, including all 64 GPR bits.
+# An arithmetic-only uint32_t oracle masks away this ABI regression.
+finish = s.split(".Lee_bn_row_finish:", 1)[1]
+finish = re.sub(r"/\*.*?\*/", "", finish, flags=re.S)
+return_insn = next(line.strip() for line in finish.splitlines() if line.strip())
+
+def sign_extend_word(value):
+    value &= MASK
+    return value | (0xffffffff00000000 if value & (1 << 31) else 0)
+
+def return_gpr(carry):
+    if re.fullmatch(r"sll\s+\$v0,\s*\$8,\s*0", return_insn):
+        return sign_extend_word(carry)
+    if re.fullmatch(r"daddu\s+\$v0,\s*\$8,\s*\$zero", return_insn):
+        return carry
+    raise AssertionError("unmodeled row return: " + return_insn)
+
+# Reproduce the supplied n=1/trial=0: output 0, carry 0xffffffff.
+edge_z = MASK * MASK + MASK
+assert edge_z & MASK == 0 and edge_z >> 32 == MASK
+assert (edge_z >> 32) != sign_extend_word(edge_z >> 32)
+for carry in (0, 1, 0x7fffffff, 0x80000000, 0xfffffffe, MASK):
+    assert return_gpr(carry) == sign_extend_word(carry), hex(carry)
+
 def addmul_row(t,a,b,n):
     carry=0
     for j in range(n):
@@ -75,6 +100,15 @@ def mont(a,b,mod,n):
     if val>=mod: val-=mod
     return val
 
+abi_rng = random.Random(0x5900ab1)
+for n in range(1, 129):
+    for trial in range(16):
+        a = [MASK if trial == 0 else abi_rng.getrandbits(32) for _ in range(n)]
+        t = [MASK if trial == 0 else abi_rng.getrandbits(32) for _ in range(n)]
+        b = MASK if trial == 0 else abi_rng.getrandbits(32)
+        carry = addmul_row(t, a, b, n)
+        assert return_gpr(carry) == sign_extend_word(carry), (n, trial, hex(carry))
+
 count=0
 for n in (1,2,3,4,5,7,8,16,32,64,128):
     for trial in range(30 if n<=16 else 8):
@@ -90,4 +124,5 @@ for n in (1,2,3,4,5,7,8,16,32,64,128):
 
 print("PASS: fused Montgomery whole-row model",count,
       "BigInt cases including odd limbs/bit31/full-width")
+print("PASS: row return GPR sign extension, 6 boundaries and 2048 row cases")
 print("NOTE: real PMULTUW ABI/latency require PS2SDK and EE run")

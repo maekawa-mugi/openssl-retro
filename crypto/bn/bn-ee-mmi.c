@@ -14,6 +14,10 @@
 #include <stdint.h>
 #include "crypto/ee_bn_mont.h"
 
+#if defined(EE_MMI_BN_REDC_SHIFT) && !defined(EE_MMI_BN_ROW_FUSED)
+# error "REDC shift requires the whole-row BN backend"
+#endif
+
 #if UINT_MAX != 0xffffffffU
 # error "EE Montgomery primitive requires 32-bit unsigned int"
 #endif
@@ -49,7 +53,11 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
                        const uint32_t *b, const uint32_t *mod,
                        uint32_t n0, size_t num)
 {
+#ifdef EE_MMI_BN_ACTIVE_SCRATCH
+    uint32_t t[OSSL_EE_BN_MONT_MAX_WORDS + 2];
+#else
     uint32_t t[OSSL_EE_BN_MONT_MAX_WORDS + 2] = {0};
+#endif
     uint32_t diff[OSSL_EE_BN_MONT_MAX_WORDS];
 #ifndef EE_MMI_BN_ROW_FUSED
     uint32_t x[4] __attribute__((aligned(16))) = {0};
@@ -57,7 +65,10 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
     uint64_t product[2] __attribute__((aligned(16))) = {0};
 #endif
     uint32_t low_borrow, choose_t, mask;
-    size_t i, j;
+    size_t i;
+#ifndef EE_MMI_BN_REDC_SHIFT
+    size_t j;
+#endif
 
     if (out == NULL || a == NULL || b == NULL || mod == NULL
         || num == 0 || num > OSSL_EE_BN_MONT_MAX_WORDS
@@ -65,6 +76,12 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
         || (uint32_t)(mod[0] * n0) != UINT32_MAX)
         return 0;
 
+#ifdef EE_MMI_BN_ACTIVE_SCRATCH
+    /* Public size bounds every scratch access. Initialize and wipe
+     * exactly the used words; unused stack slots never hold operands. */
+    for (i = 0; i < num + 2; ++i)
+        t[i] = 0;
+#endif
 #ifdef EE_MMI_BN_ROW_FUSED
     for (i = 0; i < num; ++i) {
         uint64_t z;
@@ -77,14 +94,23 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
         t[num] = (uint32_t)z;
         t[num + 1] += (uint32_t)(z >> 32);
         q = (uint32_t)(t[0] * n0);
+#ifdef EE_MMI_BN_REDC_SHIFT
+        /* The REDC row discards the canceled low word and writes
+         * each subsequent word one position back as it is computed.
+         * Only the high word and overflow bookkeeping remain in C. */
+        carry = ossl_ee_bn_redc_shift_row_mmi(t, mod, q, num);
+#else
         carry = ossl_ee_bn_muladd_row_mmi(t, mod, q, num);
+#endif
         z = (uint64_t)t[num] + carry;
+#ifndef EE_MMI_BN_REDC_SHIFT
         /* The first REDC word must be 0. Shift the accumulator
          * by one 32-bit limb. Compilers can lower this fixed-size
          * public loop to efficient word loads/stores; the old CIOS
          * loop performs the same shift while walking its REDC row. */
         for (j = 1; j < num; ++j)
             t[j - 1] = t[j];
+#endif
         t[num - 1] = (uint32_t)z;
         t[num] = t[num + 1] + (uint32_t)(z >> 32);
         t[num + 1] = 0;
@@ -157,8 +183,13 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
     for (i = 0; i < num; ++i)
         out[i] = (t[i] & mask) | (diff[i] & ~mask);
 
+#ifdef EE_MMI_BN_ACTIVE_SCRATCH
+    ee_mont_wipe(t, (num + 2) * sizeof(t[0]));
+    ee_mont_wipe(diff, num * sizeof(diff[0]));
+#else
     ee_mont_wipe(t, sizeof(t));
     ee_mont_wipe(diff, sizeof(diff));
+#endif
 #ifndef EE_MMI_BN_ROW_FUSED
     ee_mont_wipe(x, sizeof(x));
     ee_mont_wipe(y, sizeof(y));

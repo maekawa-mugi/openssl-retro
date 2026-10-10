@@ -20,3 +20,4 @@ gost-engine                             export-ignore
 
 # Keep PS2 build/verification entry points runnable in WSL on Windows.
 test/ps2/*.sh                            text eol=lf
+test/ee_mmi/*.sh                         text eol=lf

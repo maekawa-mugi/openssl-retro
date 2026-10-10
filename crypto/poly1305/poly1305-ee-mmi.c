@@ -29,6 +29,11 @@
 
 #define LIMB_MASK 0x3ffffffU
 
+#if defined(EE_MMI_POLY1305_FUSED_REDUCE) && \
+    (!defined(EE_MMI_POLY1305_FUSED_MADD) || defined(EE_MMI_POLY1305_SCALAR_MULTIPLY))
+# error "Fused reduction requires the fused MMI sums backend"
+#endif
+
 static uint32_t load32_le(const unsigned char *p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8)
@@ -43,9 +48,10 @@ static void save32_le(unsigned char *p, uint32_t value)
     p[3] = (unsigned char)(value >> 24);
 }
 
-/* Each output limb is computed by exact 64-bit products. Feed all
- * code paths through the same scalar carry/reduction, making MMI-vs-C
- * differential testing sensitive to product/sign/packing errors. */
+/* Exact 64-bit sums use scalar carry/reduction except for the opt-in
+ * fused reduction backend. The latter is independently compared with
+ * this radix-2^26 operation in the instruction-trace model. */
+#ifndef EE_MMI_POLY1305_FUSED_REDUCE
 static void fold_reduce(uint32_t h[5][4], unsigned int lane,
                         uint64_t d0, uint64_t d1, uint64_t d2,
                         uint64_t d3, uint64_t d4)
@@ -66,6 +72,7 @@ static void fold_reduce(uint32_t h[5][4], unsigned int lane,
     h[0][lane] = a0; h[1][lane] = a1; h[2][lane] = a2;
     h[3][lane] = a3; h[4][lane] = a4;
 }
+#endif
 
 /* Fixed-size volatile wipe for temporary products of key-dependent state. */
 static void poly_wipe(void *ptr, size_t len)
@@ -88,7 +95,9 @@ static void multiply_reduce(uint32_t h[5][4],
 #endif
                             )
 {
+#ifndef EE_MMI_POLY1305_FUSED_REDUCE
     unsigned int lane;
+#endif
 #ifdef EE_MMI_POLY1305_SCALAR_MULTIPLY
     for (lane = 0; lane < 4; ++lane) {
         uint32_t a0 = h[0][lane], a1 = h[1][lane];
@@ -120,6 +129,9 @@ static void multiply_reduce(uint32_t h[5][4],
     /* All packed operands are < 2^31, making their zero high word a
      * valid sign-extension for the R5900 word-value instructions. */
 #ifdef EE_MMI_POLY1305_FUSED_MADD
+#ifdef EE_MMI_POLY1305_FUSED_REDUCE
+    ossl_ee_poly1305_mul_reduce4(h, h, scale_r);
+#else
     {
         /* Fused PMULTUW+PMADDUW exact 64-bit accumulation in HI/LO.
          * Only five output limbs per stream are materialized: 160 bytes. */
@@ -131,6 +143,7 @@ static void multiply_reduce(uint32_t h[5][4],
                         sums[2][lane], sums[3][lane], sums[4][lane]);
         poly_wipe(sums, sizeof(sums));
     }
+#endif
 #else
     {
         /* Baseline: individual PMULTUW terms in an 800-byte matrix.

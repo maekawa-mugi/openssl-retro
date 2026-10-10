@@ -18,10 +18,10 @@ assert "(step + sample) & 1U" in runner
 assert "(step + sample) % 3U" in runner
 assert re.search(r"if\s*\(\s*!validate_one\(i\)\s*\)", runner)
 assert "b_ps2_bench_run" in runner and "f_ps2_bench_run" in runner
-assert "backends[mode].reset(suite);" in runner
+assert "selected->reset(workload);" in runner
 assert "GetTimerSystemTime() - start" in runner
 assert runner.index("GetTimerSystemTime() - start") < runner.index(
-    "digests[mode] = backends[mode].digest(suite)")
+    "digests[mode] = selected->digest(workload)")
 assert "digests[mode] != canonical" in runner
 assert "f_ps2_test_poly1305" in runner
 assert "ee_print_status(" in runner

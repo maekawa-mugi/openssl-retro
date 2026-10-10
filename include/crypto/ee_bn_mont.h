@@ -28,6 +28,12 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
                        const uint32_t *b, const uint32_t *mod,
                        uint32_t n0, size_t num);
 
+/* Public RSA experiment: symmetric square plus separate MMI REDC.
+ * Same bounds/return contract as mont32, out may alias a. Linked only
+ * in the EE_MMI_BN_PUBLIC_SQUARE namespace, no default dispatch. */
+int ossl_ee_bn_mont_sqr32(uint32_t *out, const uint32_t *a,
+                          const uint32_t *mod, uint32_t n0, size_t num);
+
 /* Experimental fused R5900 CIOS row. Never link the ASM backend
  * without its independent known-answer and boundary tests. Enabled
  * ONLY via EE_MMI_BN_ROW_FUSED and not part of default libcrypto.
@@ -36,6 +42,15 @@ int ossl_ee_bn_mont32(uint32_t *out, const uint32_t *a,
  */
 uint32_t ossl_ee_bn_muladd_row_mmi(uint32_t *t, const uint32_t *a,
                                     uint32_t multiplier, size_t num);
+
+/* Experimental REDC row with an integrated divide-by-2^32 shift.
+ * Same input bounds as the addmul row; a and t must not overlap.
+ * Computes the same products/carries but discards row word zero and
+ * stores row word j in t[j-1] for j>0. t[num-1] is left unchanged;
+ * the caller fills it from the high accumulator word + returned carry.
+ * Enabled only with EE_MMI_BN_REDC_SHIFT and EE_MMI_BN_ROW_FUSED. */
+uint32_t ossl_ee_bn_redc_shift_row_mmi(uint32_t *t, const uint32_t *a,
+                                       uint32_t multiplier, size_t num);
 
 /* Performs two exact 32x32 unsigned multiplies in parallel. x and y
  * are 16-byte-aligned arrays of four words, only indices 0,1 matter.

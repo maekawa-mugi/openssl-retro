@@ -53,6 +53,75 @@ uint32_t ossl_ee_bn_muladd_row_mmi(uint32_t *t, const uint32_t *a,
 }
 #endif
 
+#if defined(EE_MMI_BN_ROW_HOST_TEST) && defined(EE_MMI_BN_REDC_SHIFT)
+uint32_t ossl_ee_bn_redc_shift_row_mmi(uint32_t *t, const uint32_t *a,
+                                       uint32_t multiplier, size_t num)
+{
+    uint64_t carry = 0;
+    size_t j;
+    for (j = 0; j < num; ++j) {
+        uint64_t z = (uint64_t)a[j] * multiplier + t[j] + carry;
+        if (j != 0)
+            t[j - 1] = (uint32_t)z;
+        carry = z >> 32;
+    }
+    return (uint32_t)carry;
+}
+#endif
+
+#ifdef EE_MMI_BN_REDC_SHIFT
+static int exercise_redc_shift_direct(void)
+{
+    uint32_t a[MAXN], expected[MAXN];
+    struct {
+        uint32_t pre, t[MAXN], post;
+    } guard;
+    size_t n, j;
+    unsigned int trial;
+    for (n = 1; n <= MAXN; ++n) {
+        for (trial = 0; trial < 16; ++trial) {
+            uint32_t multiplier = trial == 0 ? UINT32_MAX
+                                : trial == 1 ? 0x80000000U : rand32();
+            uint64_t carry = 0;
+            uint32_t got;
+            memset(&guard, 0xa5, sizeof(guard));
+            for (j = 0; j < n; ++j) {
+                a[j] = trial == 0 ? UINT32_MAX : rand32();
+                guard.t[j] = trial == 0 ? UINT32_MAX : rand32();
+            }
+            expected[n - 1] = guard.t[n - 1];
+            for (j = 0; j < n; ++j) {
+                uint64_t z = (uint64_t)a[j] * multiplier + guard.t[j] + carry;
+                if (j != 0)
+                    expected[j - 1] = (uint32_t)z;
+                carry = z >> 32;
+            }
+            got = ossl_ee_bn_redc_shift_row_mmi(guard.t,a,multiplier,n);
+            if (got != (uint32_t)carry) {
+                printf("BN_SHIFT_FAIL,n=%lu,trial=%u,carry=%08lx,want=%08lx\n",
+                       (unsigned long)n,trial,(unsigned long)got,
+                       (unsigned long)(uint32_t)carry);
+                return 0;
+            }
+            for (j = 0; j < n; ++j)
+                if (guard.t[j] != expected[j]) {
+                    printf("BN_SHIFT_FAIL,n=%lu,trial=%u,limb=%lu\n",
+                           (unsigned long)n,trial,(unsigned long)j);
+                    return 0;
+                }
+            /* Includes every unused output word immediately after n. */
+            for (j = n; j < MAXN; ++j)
+                if (guard.t[j] != 0xa5a5a5a5U)
+                    return 0;
+            if (guard.pre != 0xa5a5a5a5U || guard.post != 0xa5a5a5a5U)
+                return 0;
+        }
+    }
+    puts("PASS: BN shifted REDC direct 2048 odd/even, bit31, guard tests");
+    return 1;
+}
+#endif
+
 #ifdef EE_MMI_BN_ROW_FUSED
 static int exercise_row_direct(void)
 {
@@ -83,12 +152,12 @@ static int exercise_row_direct(void)
             memset(&guard, 0xa5, sizeof(guard));
             memcpy(guard.t, before, n*sizeof(uint32_t));
             carry=ossl_ee_bn_muladd_row_mmi(guard.t,a,multiplier,n);
-            /* The direct ABI test must compare full unsigned limbs,
-             * not depend on the PS2 libc bytewise memcmp path. The
-             * previous PCSX2 log reported a memcmp mismatch at n=1
-             * while the returned carry and every 32-bit limb matched.
-             * XOR all public-count limbs so real arithmetic failures
-             * are still rejected and precisely identified. */
+            /* Compare all limbs and keep carry as a direct ABI check.
+             * At n=1/trial=0 the carry is UINT32_MAX. Returning that
+             * with zero-extended rather than sign-extended upper GPR
+             * bits can fail the C comparison while these diagnostics
+             * print identical 32-bit carries. This is an ASM return
+             * convention bug, not evidence of a libc memcmp bug. */
             {
                 uint32_t difference=0;
                 size_t first=n;
@@ -235,6 +304,27 @@ static int compare_case(const uint32_t *a, const uint32_t *b,
                 label, (unsigned long)num, repeat);
         return 0;
     }
+#ifdef EE_MMI_BN_PUBLIC_SQUARE
+    for (i = 0; i < MAXN+4; ++i)
+        candidate[i] = 0x8a3e5c7dU;
+    if (!ref_mont32(expected, a, a, n, n0, num)
+        || !ossl_ee_bn_mont_sqr32(candidate+2, a, n, n0, num)
+        || memcmp(candidate+2, expected, num*sizeof(uint32_t)) != 0
+        || candidate[0] != 0x8a3e5c7dU || candidate[1] != 0x8a3e5c7dU
+        || candidate[num+2] != 0x8a3e5c7dU
+        || candidate[num+3] != 0x8a3e5c7dU) {
+        fprintf(stderr, "FAIL: public square/guard size=%lu iter=%u\n",
+                (unsigned long)num, repeat);
+        return 0;
+    }
+    memcpy(scratch, a, num*sizeof(uint32_t));
+    if (!ossl_ee_bn_mont_sqr32(scratch, scratch, n, n0, num)
+        || memcmp(scratch, expected, num*sizeof(uint32_t)) != 0) {
+        fprintf(stderr, "FAIL: public square alias size=%lu iter=%u\n",
+                (unsigned long)num, repeat);
+        return 0;
+    }
+#endif
     ++case_count;
     return 1;
 }
@@ -349,6 +439,10 @@ static void benchmark(void)
 
 int main(int argc, char **argv)
 {
+#ifdef EE_MMI_BN_REDC_SHIFT
+    if (!exercise_redc_shift_direct())
+        return EXIT_FAILURE;
+#endif
 #ifdef EE_MMI_BN_ROW_FUSED
     if (!exercise_row_direct())
         return EXIT_FAILURE;

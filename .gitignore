@@ -563,6 +563,14 @@ doc-nits
 compile_commands.json
 /build-ps2-mmi*/
 
+# Handwritten EE experiment sources (not generated perlasm output).
+!/crypto/bn/bn-ee-row-reg-mmi.S
+!/crypto/bn/bn-ee-redc-shift-mmi.S
+!/crypto/poly1305/poly1305-ee-preload-mmi.S
+!/crypto/poly1305/poly1305-ee-reduce-mmi.S
+!/crypto/sha/sha256-ee-mmi-unroll4.S
+!/crypto/modes/ghash-ee-mmi-unroll8.S
+
 # coverage files
 *.gcda
 *.gcno

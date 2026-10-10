@@ -182,7 +182,7 @@ static int products_check(void)
 }
 #endif
 
-#ifdef EE_MMI_POLY1305_FUSED_MADD
+#if defined(EE_MMI_POLY1305_FUSED_MADD) && !defined(EE_MMI_POLY1305_FUSED_REDUCE)
 /* This directly exercises the PMADDUW interface on target hardware,
  * separately from tag generation. 256 cases * five sums * four lanes.
  * It covers zero, maximal limbs, distinct lanes and 64-bit carry. */
@@ -244,6 +244,67 @@ static int sums_check(void)
         }
     }
     puts("PASS: PMADDUW 256 x (5 x 4) exact 64-bit accumulated sums");
+    return 1;
+}
+#elif defined(EE_MMI_POLY1305_FUSED_REDUCE)
+/* Test the actual reduced-output helper, not the older sums4 interface.
+ * Separate output and exact in-place operation both retain guards. */
+static int sums_check(void)
+{
+    struct {
+        uint32_t before[4], h[5][4], after[4];
+    } __attribute__((aligned(16))) buffer;
+    uint32_t a[5][4] __attribute__((aligned(16)));
+    uint32_t b[10][4] __attribute__((aligned(16)));
+    uint32_t original_a[5][4], original_b[10][4], expected[5][4];
+    unsigned int iteration, i, k, lane, alias;
+    randstate = 0x1357abdfU;
+    for (iteration = 0; iteration < 256; ++iteration) {
+        for (i = 0; i < 5; ++i)
+            for (lane = 0; lane < 4; ++lane) {
+                a[i][lane] = iteration == 0 ? 0U : iteration == 1
+                            ? 0x7ffffffU : rand32() & 0x7ffffffU;
+                b[i][lane] = iteration == 0 ? 0U : iteration == 1
+                            ? 0x3ffffffU : rand32() & 0x3ffffffU;
+                b[i+5][lane] = 5U * b[i][lane];
+            }
+        memcpy(original_a, a, sizeof(a));
+        memcpy(original_b, b, sizeof(b));
+        for (lane = 0; lane < 4; ++lane) {
+            uint64_t carry = 0;
+            for (k = 0; k < 5; ++k) {
+                uint64_t sum = carry;
+                for (i = 0; i < 5; ++i) {
+                    unsigned int j = (k + 5 - i) % 5 + (i > k ? 5 : 0);
+                    sum += (uint64_t)a[i][lane] * b[j][lane];
+                }
+                expected[k][lane] = (uint32_t)sum & 0x3ffffffU;
+                carry = sum >> 26;
+            }
+            carry = expected[0][lane] + carry * 5;
+            expected[0][lane] = (uint32_t)carry & 0x3ffffffU;
+            expected[1][lane] += (uint32_t)(carry >> 26);
+        }
+        for (alias = 0; alias < 2; ++alias) {
+            for (i = 0; i < 4; ++i)
+                buffer.before[i] = buffer.after[i] = 0xa5a5a5a5U;
+            memcpy(buffer.h, a, sizeof(a));
+            ossl_ee_poly1305_mul_reduce4(buffer.h, alias ? buffer.h : a, b);
+            if (memcmp(buffer.h, expected, sizeof(expected)) != 0
+                || memcmp(a, original_a, sizeof(a)) != 0
+                || memcmp(b, original_b, sizeof(b)) != 0) {
+                printf("FAIL: fused reduction iteration=%u alias=%u\n",iteration,alias);
+                return 0;
+            }
+            for (i = 0; i < 4; ++i)
+                if (buffer.before[i] != 0xa5a5a5a5U
+                    || buffer.after[i] != 0xa5a5a5a5U) {
+                    puts("FAIL: fused reduction sentinel corrupted");
+                    return 0;
+                }
+        }
+    }
+    puts("PASS: fused reduction 512 direct carry/alias/guard cases");
     return 1;
 }
 #endif
@@ -389,6 +450,8 @@ int main(int argc, char **argv)
     puts("Host test only: MMI instructions and EE ABI are NOT exercised");
 #elif defined(EE_MMI_POLY1305_SCALAR_MULTIPLY)
     puts("EE SCALAR MULTIPLICATION: PMULTUW disabled for A/B baseline");
+#elif defined(EE_MMI_POLY1305_FUSED_REDUCE)
+    puts("EE FUSED REDUCTION: R5900 mul_reduce4 path linked");
 #elif defined(EE_MMI_POLY1305_FUSED_MADD)
     puts("EE FUSED PMADDUW: R5900 exact 64-bit accumulation path linked");
 #else

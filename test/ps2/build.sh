@@ -96,6 +96,26 @@ objects=()
 if [[ ${PS2_AB:-0} == 1 ]]; then
     flags+=(-DPS2_AB)
 fi
+case "${PS2_EXPERIMENTS:-1}" in
+    0|1) ;;
+    *) echo "PS2_EXPERIMENTS must be 0 or 1" >&2; exit 2 ;;
+esac
+# Normal runs contain the ten hardware-selected algorithms. Old candidates
+# remain available for explicit comparisons; no crypto test files are deleted.
+ps2_profile=${PS2_PROFILE:-}
+if [[ -z "$ps2_profile" ]]; then
+    if [[ ${PS2_EXPERIMENTS:-1} == 0 ]]; then ps2_profile=legacy
+    else ps2_profile=selected; fi
+fi
+case "$ps2_profile" in
+    selected|all|legacy) ;;
+    *) echo "PS2_PROFILE must be selected, all, or legacy" >&2; exit 2 ;;
+esac
+if [[ ${PS2_AB:-0} == 1 && "$ps2_profile" != legacy ]]; then
+    flags+=(-DPS2_EXPERIMENTS)
+    if [[ "$ps2_profile" == selected ]]; then flags+=(-DPS2_SELECTED); fi
+fi
+echo "PS2 benchmark profile=$ps2_profile"
 compile_pids=()
 compile() {
     local src=$1 obj="$output_dir/${object_tag:-}${1//\//_}.o"
@@ -157,24 +177,27 @@ if [[ ${PS2_AB:-0} == 1 ]]; then
     "${cc%gcc}nm" --defined-only --extern-only "$output_dir/scalar.o" |
         awk '{print $3 " b_" $3}' > "$output_dir/scalar-symbols.txt"
     "${cc%gcc}objcopy" --redefine-syms="$output_dir/scalar-symbols.txt" "$output_dir/scalar.o"
-    # Third Poly1305 backend: fused PMULTUW/PMADDUW instead of the
-    # separate-product default, with independent regression checks.
-    object_tag=f_
-    objects=()
-    fused_flags=(-DEE_MMI_POLY1305_FUSED_MADD)
-    compile test/ee_mmi/poly1305_test.c "${fused_flags[@]}" -Dmain=ps2_test_poly1305
-    compile crypto/poly1305/poly1305-ee-mmi.c "${fused_flags[@]}"
-    compile crypto/poly1305/poly1305-ee-mmi.S
-    compile crypto/poly1305/poly1305-ee-pmadduw.S
-    compile test/ps2/bench.c "${fused_flags[@]}" -DPS2_BENCH_POLY_ONLY
-    finish_compiles
-    "${cc%gcc}ld" -r "${objects[@]}" -o "$output_dir/fused.o"
-    "${cc%gcc}nm" --defined-only --extern-only "$output_dir/fused.o" |
-        awk '{print $3 " f_" $3}' > "$output_dir/fused-symbols.txt"
-    "${cc%gcc}objcopy" --redefine-syms="$output_dir/fused-symbols.txt" "$output_dir/fused.o"
+    if [[ "$ps2_profile" != selected ]]; then
+        # Third Poly1305 backend: fused PMULTUW/PMADDUW instead of the
+        # separate-product default, with independent regression checks.
+        object_tag=f_
+        objects=()
+        fused_flags=(-DEE_MMI_POLY1305_FUSED_MADD)
+        compile test/ee_mmi/poly1305_test.c "${fused_flags[@]}" -Dmain=ps2_test_poly1305
+        compile crypto/poly1305/poly1305-ee-mmi.c "${fused_flags[@]}"
+        compile crypto/poly1305/poly1305-ee-mmi.S
+        compile crypto/poly1305/poly1305-ee-pmadduw.S
+        compile test/ps2/bench.c "${fused_flags[@]}" -DPS2_BENCH_POLY_ONLY
+        finish_compiles
+        "${cc%gcc}ld" -r "${objects[@]}" -o "$output_dir/fused.o"
+        "${cc%gcc}nm" --defined-only --extern-only "$output_dir/fused.o" |
+            awk '{print $3 " f_" $3}' > "$output_dir/fused-symbols.txt"
+        "${cc%gcc}objcopy" --redefine-syms="$output_dir/fused-symbols.txt" "$output_dir/fused.o"
 
+    fi
     objects=("${a_objects[@]}")
-    objects+=("$output_dir/scalar.o" "$output_dir/fused.o")
+    objects+=("$output_dir/scalar.o")
+    if [[ "$ps2_profile" != selected ]]; then objects+=("$output_dir/fused.o"); fi
     object_tag=
 fi
 for src in \
@@ -198,6 +221,9 @@ for src in \
     fi
 done
 finish_compiles
+if [[ ${PS2_AB:-0} == 1 && "$ps2_profile" != legacy ]]; then
+    source test/ps2/build-experiments.sh
+fi
 "$cc" -march=r5900 -G0 "-B$crt_dir/" \
     "-T$PS2SDK/ee/startup/linkfile" "-L$PS2SDK/ee/lib" \
     -Wl,-zmax-page-size=128,--gc-sections "-Wl,-Map,$output_dir/openssl_mmi.map" \

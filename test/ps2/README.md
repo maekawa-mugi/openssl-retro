@@ -1,5 +1,129 @@
 # PCSX2 / PS2 EE MMI regression ELF
 
+## Default: ten real-EE-selected algorithms
+
+A normal `PS2_AB=1` build now selects ten rows based on the supplied
+real-console log. Each optimized candidate runs its full correctness
+suite, compares against the unchanged scalar B, and checks output digests
+outside the timing region. Unchanged workloads, six alternating samples
+and median timing permit comparison with the archived run.
+
+```sh
+PS2_AB=1 bash test/ps2/build.sh
+# equivalent: PS2_AB=1 PS2_PROFILE=selected bash test/ps2/build.sh
+# old 25-row comparison:
+PS2_AB=1 PS2_PROFILE=all PS2_SCHED_GHASH=3 bash test/ps2/build.sh
+# old ten baseline algorithms with optional historical Poly F:
+PS2_AB=1 PS2_PROFILE=legacy bash test/ps2/build.sh
+```
+
+| Workload | Selected optimized row |
+| --- | --- |
+| ChaCha20 | ChaCha wrap |
+| SHA224/256 | Original compressor (default S0) |
+| Poly1305 | Poly reduce |
+| AES | Original tower S-box build (default K2) |
+| GHASH | GHASH u8 |
+| BN Montgomery | BN shift |
+| X25519 | Original MMI field convolution |
+| RSA-65537 | RSA tight |
+| P256 ECDH | P256 reg |
+| AES-GCM | GCM u8 |
+
+Selected mode omits the duplicate Poly F namespace and builds seven
+private candidate namespaces (r/g/c/d/q/e/w), instead of twelve. Sparse
+backend slots keep the archive's IDs stable; absent slots are not prepared.
+The normal screen returns to four header lines and ten algorithm rows.
+The existing schedule matrix still defaults to the legacy profile.
+
+In all profiles scalar validation is cached once per workload. A failed
+scalar result remains a failure for every candidate; candidate-specific
+validation and every timed-sample digest comparison remain enabled.
+RSA tight retains its BN preflight. P256 reg gains its own BN preflight
+in selected mode because the former standalone BN reg row is absent.
+Poly reduce now directly tests mul_reduce4 against independent scalar
+carry math in 512 separate-output/in-place/guard cases; it no longer
+reports an older sums4 helper's direct test as its own kernel validation.
+Existing RFC/NIST/BigInt vectors, boundary and tamper tests are retained.
+
+No compilation was run by the agent. Shell syntax, mocked selected/all
+namespace plans and Python models were checked. Run the user-built ELF
+for C/ASM correctness and target speed. See [real-EE results and next
+optimization priorities](REAL_EE_RESULTS.md).
+
+## Archived comparison rows (`PS2_PROFILE=all`)
+
+`PS2_AB=1 PS2_PROFILE=all` keeps the original ten rows and appends fifteen candidates.
+Each extra row runs the corresponding full regression suite first, then
+compares the same workload against the existing scalar B with alternating
+order, six samples, post-timer output digests and the median. A means the
+named candidate on that row. The original Poly1305 F control is retained.
+
+| Added row | Candidate |
+| --- | --- |
+| BN reg | Register-only PMULTUW row: PCPYLD packs LW operands, PCPYUD extracts the second product; eliminates operand/product stack traffic |
+| RSA reg | Same register-only BN kernel in prepared-key RSA-65537 |
+| P256 reg | Same row kernel with the existing fixed-prime reduction and inversion windows |
+| Poly hybrid | Scalar block absorption with the existing fused MMI product sums |
+| SHA u4 | Existing Ch-first step repeated four times per branch, 16 iterations |
+| GHASH u8 | Existing scheduled bit step repeated eight times per branch, 16 branches per product |
+| AES K2early | Tower-field S-box combined with early round-key loading |
+| GCM u8 | AES-GCM with tower S-box and the eight-step GHASH kernel, including AAD/payload/tag authentication |
+| BN shift | Register-only multiply rows and a REDC row that writes directly to the shifted accumulator |
+| RSA shift | Same shifted REDC in prepared-key RSA-65537 |
+| Poly preload | Load and pack h/r once per lane pair, reusing them for all five fused sums |
+| RSA tight | Shifted REDC, used-size BN scratch initialization/wipe, and alternating square buffers |
+| Poly reduce | Preloaded fused sums with radix-2^26 reduction in assembly; removes the 160-byte sums buffer |
+| RSA square | RSA tight plus symmetric Comba squaring and separate MMI REDC for the 16 prepared-key squares |
+| ChaCha wrap | Expand the fixed state once per call, reuse it for each 256 bytes, and use alias-safe four-byte XOR; original C0 round ASM |
+
+For the same C0/S0/G3/K2/BN1 baseline as the supplied screenshot:
+
+```sh
+PS2_AB=1 PS2_PROFILE=all PS2_SCHED_GHASH=3 bash test/ps2/build.sh
+# build-ps2-mmi/openssl_mmi.elf: original 10 + extra 15 rows
+```
+
+`PS2_PROFILE=legacy` (or `PS2_EXPERIMENTS=0` without an explicit profile) restores the ten-row A/B/F build. The existing
+`build-variants.sh` matrix defaults to that mode to avoid repeating the
+same appended experiments in all twelve ELFs; explicitly set
+`PS2_EXPERIMENTS=1` there if desired. The fifteen extra rows use fixed
+candidates independent of the selected schedules for the original rows.
+They link in twelve private namespaces (r/h/s/g/k/c/d/p/q/e/n/w), including independent
+benchmark buffers and setup. Build time and ELF size increase.
+
+No speedup is assumed. Python instruction-trace/math checks and shell
+syntax checks have passed; these new kernels still need a user-built
+ELF and PCSX2/EE regression and timing runs. The supplied follow-up
+screen confirms the previous BN1 return-ABI fix passes in PCSX2.
+
+Portable checks without compiling:
+
+```sh
+python3 test/ps2/check-experiments.py
+python3 test/ps2/check-redc-shift.py
+python3 test/ps2/check-poly-rsa.py
+python3 test/ps2/check-public-square.py
+python3 test/ps2/check-chacha-wrap.py
+python3 test/ps2/check-bench.py
+bash test/ps2/check-experiment-plan.sh
+```
+
+The latest supplied PCSX2 screen passed all 22 previous rows: Poly preload
+5.667 ms versus scalar 4.948 ms, RSA tight 45.896 ms versus scalar
+52.416 ms. Poly reduce and RSA square are new, with no target build or
+timing yet. A compact single-line header fits all 25 rows and both footer
+lines on the GS screen. Schedule flags remain in the header; the title
+and median6/A/B/F legend are printed to stdout. RSA tight and RSA square each run their candidate
+BN regressions before the RSA regression and timing.
+
+`python test/ps2/check-poly-rsa.py` checks the fused reduction's instruction
+trace, aliased outputs, saved registers and scratch cleanup. Run
+`python test/ps2/check-public-square.py` for symmetric square + actual MMI
+REDC traces against BigInt, including odd sizes and final subtraction.
+For an optional native C test, `EE_BN_PUBLIC_SQUARE=1 sh test/ee_mmi/run-bn-mont-host.sh` selects the new square backend. These
+compilation commands are for the user; no build was run by the agent.
+
 ## October 2026 real-EE performance repair
 
 The SPR experiment and all its PS2 fixed-address accesses have been
@@ -243,3 +367,25 @@ action and your configured BIOS. Wait for all nine suite results and
 the final summary. X25519, RSA and P-256 may take longer than the
 symmetric crypto suites. If a suite fails, retain its name/return code
 and the emulator stdout diagnostics for follow-up.
+
+
+### ChaCha wrapper experiment
+
+The reported 10.00 MB/s corresponds to 4096*12 bytes / 4.917 ms.
+`ChaCha wrap` uses identical workload size, repetitions, scalar comparison,
+samples and digests. It keeps the original C0 ASM so differences come
+from the wrapper. Constants/key/nonce expand into word-major vectors once
+per invocation; only the counter vector changes per 256-byte batch.
+A 256-byte template is copied into the round state instead of constructing
+both state and original afresh for every batch. Input XOR uses 4-byte
+`memcpy` operations, allowing unaligned and in-place buffers without
+casting byte pointers to uint32_t pointers. The path is little-endian EE
+only, with the same scalar tail and CTR32 wrap behavior.
+
+This tests whether wrapper setup and bytewise output cost explain part
+of the gap. A compiler may leave memcpy overhead, and the ASM round cost
+remains, so no speedup is assumed. `check-chacha-wrap.py` checks a Python
+model against RFC and independent scalar output in 408 cases (0..16384
+bytes, alignment offsets, in-place, tails and counter wraps). The row
+runs the full existing target ChaCha regression before timing. No C/ASM
+build or performance run was performed by the agent.
